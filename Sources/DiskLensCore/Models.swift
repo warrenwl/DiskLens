@@ -10,7 +10,7 @@ public enum ScanMode: String, Codable, CaseIterable, Identifiable, Sendable {
     public var label: String {
         switch self {
         case .defaultScope:
-            return "AI/开发重点目录"
+            return "重点目录"
         case .dataVolume:
             return "全 Data 卷"
         case .custom:

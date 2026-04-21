@@ -478,6 +478,7 @@ private struct RecommendationRow: View {
 
 private struct RiskBadge: View {
     let risk: RiskLevel
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Text(risk.label)
@@ -489,15 +490,16 @@ private struct RiskBadge: View {
     }
 
     private var color: (background: Color, foreground: Color) {
+        let isDark = colorScheme == .dark
         switch risk {
         case .safeClean:
-            return (Color.green.opacity(0.18), Color.green)
+            return (Color.green.opacity(isDark ? 0.25 : 0.18), Color.green)
         case .review:
-            return (Color.orange.opacity(0.20), Color.orange)
+            return (Color.orange.opacity(isDark ? 0.28 : 0.20), Color.orange)
         case .keep:
-            return (Color.gray.opacity(0.18), Color.secondary)
+            return (Color.gray.opacity(isDark ? 0.25 : 0.18), Color.secondary)
         case .system:
-            return (Color.blue.opacity(0.16), Color.blue)
+            return (Color.blue.opacity(isDark ? 0.22 : 0.16), Color.blue)
         }
     }
 }

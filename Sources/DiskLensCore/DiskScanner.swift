@@ -36,14 +36,7 @@ public struct DiskScanner: Sendable {
         options: ScanOptions,
         onProgress: (@Sendable (ScanProgress) -> Void)? = nil
     ) async -> ScanResult {
-        let task = Task.detached(priority: .userInitiated) {
-            Self.scanSync(options: options, onProgress: onProgress)
-        }
-        return await withTaskCancellationHandler {
-            await task.value
-        } onCancel: {
-            task.cancel()
-        }
+        await Self.scanSync(options: options, onProgress: onProgress)
     }
 
     public func scanDirectoryLevel(url: URL, parentPath: String? = nil) async -> DirectoryLevelResult {
@@ -55,36 +48,45 @@ public struct DiskScanner: Sendable {
     private static func scanSync(
         options: ScanOptions,
         onProgress: (@Sendable (ScanProgress) -> Void)?
-    ) -> ScanResult {
+    ) async -> ScanResult {
         let roots = roots(for: options)
         var scannedItems: [ScanItem] = []
         let progress = ScanProgressTracker(initialPath: roots.first?.path ?? "", onProgress: onProgress)
 
         progress.emit(force: true)
 
-        for root in roots {
-            guard FileManager.default.fileExists(atPath: root.path) else { continue }
-            if Task.isCancelled { break }
-            progress.setCurrentPath(root.path)
-            progress.emit(force: true)
-            let result = scanDirectoryLevelSync(url: root, parentPath: nil)
-            progress.addBytes(result.item.sizeBytes)
-            result.inaccessiblePaths.forEach { progress.recordInaccessible($0) }
-            scannedItems.append(result.item)
-            progress.emit(force: true)
+        await withTaskGroup(of: ScanItem?.self) { group in
+            for root in roots {
+                guard FileManager.default.fileExists(atPath: root.path) else { continue }
+                group.addTask {
+                    if Task.isCancelled { return nil }
+                    progress.setCurrentPath(root.path)
+                    progress.emit(force: true)
+                    let result = scanDirectoryLevelSync(url: root, parentPath: nil)
+                    progress.addBytes(result.item.sizeBytes)
+                    for p in result.inaccessiblePaths { progress.recordInaccessible(p) }
+                    progress.emit(force: true)
+                    return result.item
+                }
+            }
+            for await item in group {
+                if let item { scannedItems.append(item) }
+            }
         }
+
         progress.setCancelled(Task.isCancelled)
         progress.emit(force: true)
 
         scannedItems.sort { $0.sizeBytes > $1.sizeBytes }
         let scannedBytes = scannedItems.reduce(Int64(0)) { $0 + $1.sizeBytes }
+        let snap = progress.snapshot
         let summary = makeSummary(
             mode: options.mode,
             roots: roots.map(\.path),
             scannedBytes: scannedBytes,
-            inaccessiblePaths: progress.snapshot.inaccessiblePaths,
-            startedAt: progress.snapshot.startedAt,
-            isCancelled: progress.snapshot.isCancelled
+            inaccessiblePaths: snap.inaccessiblePaths,
+            startedAt: snap.startedAt,
+            isCancelled: snap.isCancelled
         )
         let recommendations = RecommendationEngine.recommendations(from: scannedItems)
 
@@ -552,6 +554,7 @@ private final class ScanProgressTracker: @unchecked Sendable {
     private var progress: ScanProgress
     private var lastEmit = Date.distantPast
     private let onProgress: (@Sendable (ScanProgress) -> Void)?
+    private let lock = NSLock()
 
     init(initialPath: String, onProgress: (@Sendable (ScanProgress) -> Void)?) {
         self.progress = ScanProgress(
@@ -568,42 +571,62 @@ private final class ScanProgressTracker: @unchecked Sendable {
     }
 
     var snapshot: ScanProgress {
-        progress
+        lock.lock()
+        defer { lock.unlock() }
+        return progress
     }
 
     func setCurrentPath(_ path: String) {
+        lock.lock()
         progress.currentPath = path
+        lock.unlock()
     }
 
     func incrementDirectories() {
+        lock.lock()
         progress.scannedDirectories += 1
+        lock.unlock()
     }
 
     func incrementFiles() {
+        lock.lock()
         progress.scannedFiles += 1
+        lock.unlock()
     }
 
     func addBytes(_ bytes: Int64) {
+        lock.lock()
         progress.scannedBytes += bytes
+        lock.unlock()
     }
 
     func recordInaccessible(_ path: String) {
+        lock.lock()
         if progress.inaccessiblePaths.last != path {
             progress.inaccessiblePaths.append(path)
         }
+        lock.unlock()
     }
 
     func setCancelled(_ isCancelled: Bool) {
+        lock.lock()
         progress.isCancelled = isCancelled
+        lock.unlock()
     }
 
     func emit(force: Bool) {
+        lock.lock()
         let now = Date()
-        guard force || now.timeIntervalSince(lastEmit) >= 0.2 else { return }
+        guard force || now.timeIntervalSince(lastEmit) >= 0.2 else {
+            lock.unlock()
+            return
+        }
         lastEmit = now
         progress.updatedAt = now
         progress.isCancelled = Task.isCancelled
-        onProgress?(progress)
+        let snapshot = progress
+        lock.unlock()
+        onProgress?(snapshot)
     }
 }
 

@@ -45,7 +45,7 @@ struct TreemapPanel: View {
             GeometryReader { proxy in
                 ZStack(alignment: .topLeading) {
                     Rectangle()
-                        .fill(Color(nsColor: .textBackgroundColor))
+                        .fill(Color(nsColor: .controlBackgroundColor))
                         .allowsHitTesting(false)
                     TreemapCanvas(
                         items: items,
@@ -124,6 +124,7 @@ private struct TreemapCell: View {
     let onSelect: (ScanItem) -> Void
     let onEnter: (ScanItem) -> Void
     let onHover: (ScanItem?) -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -193,24 +194,27 @@ private struct TreemapCell: View {
     }
 
     private var riskColor: Color {
+        let isDark = colorScheme == .dark
         switch item.risk {
         case .safeClean: return .green
-        case .review: return .orange
-        case .keep: return .gray
-        case .system: return .blue
+        case .review: return isDark ? Color(red: 1.0, green: 0.65, blue: 0.0) : .orange
+        case .keep: return isDark ? Color(white: 0.7) : .gray
+        case .system: return isDark ? Color(red: 0.35, green: 0.55, blue: 1.0) : .blue
         }
     }
 
     private var cellFill: Color {
-        if isHovered { return riskColor.opacity(0.32) }
-        if isSelected { return riskColor.opacity(0.25) }
-        return riskColor.opacity(0.14)
+        let isDark = colorScheme == .dark
+        if isHovered { return riskColor.opacity(isDark ? 0.38 : 0.32) }
+        if isSelected { return riskColor.opacity(isDark ? 0.30 : 0.25) }
+        return riskColor.opacity(isDark ? 0.20 : 0.14)
     }
 
     private var cellStroke: Color {
+        let isDark = colorScheme == .dark
         if isHovered { return riskColor }
         if isSelected { return Color.accentColor }
-        return riskColor.opacity(0.70)
+        return riskColor.opacity(isDark ? 0.85 : 0.70)
     }
 
     private var cellLineWidth: CGFloat {
@@ -232,6 +236,7 @@ private struct TreemapCell: View {
 
 private struct HoverStatusBar: View {
     let item: ScanItem?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 10) {
@@ -244,7 +249,7 @@ private struct HoverStatusBar: View {
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(.secondary.opacity(0.12), in: Capsule())
+                    .background(.secondary.opacity(colorScheme == .dark ? 0.18 : 0.12), in: Capsule())
                 Text(item.path)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -335,22 +340,24 @@ private extension ItemKind {
 
 private struct RiskMiniLabel: View {
     let risk: RiskLevel
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Text(risk.label)
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .background(color.opacity(0.16), in: Capsule())
+            .background(color.opacity(colorScheme == .dark ? 0.22 : 0.16), in: Capsule())
             .foregroundStyle(color)
     }
 
     private var color: Color {
+        let isDark = colorScheme == .dark
         switch risk {
         case .safeClean: return .green
-        case .review: return .orange
-        case .keep: return .gray
-        case .system: return .blue
+        case .review: return isDark ? Color(red: 1.0, green: 0.65, blue: 0.0) : .orange
+        case .keep: return isDark ? Color(white: 0.7) : .gray
+        case .system: return isDark ? Color(red: 0.35, green: 0.55, blue: 1.0) : .blue
         }
     }
 }
@@ -371,11 +378,12 @@ private struct Legend: View {
 private struct LegendDot: View {
     let color: Color
     let label: String
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 4) {
             Circle()
-                .fill(color.opacity(0.75))
+                .fill(color.opacity(colorScheme == .dark ? 0.90 : 0.75))
                 .frame(width: 7, height: 7)
             Text(label)
         }
