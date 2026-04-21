@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1040" viewBox="0 0 1600 1040">
+<rect width="1600" height="1040" fill="#fbfaf7"/>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",Arial,sans-serif;letter-spacing:0}</style>
+<text x="40.0" y="58.0" font-size="30" font-weight="800" fill="#101418">Mac 磁盘占用全景图</text>
+<text x="40.0" y="88.0" font-size="15" font-weight="500" fill="#4c5663">扫描对象：/System/Volumes/Data；当前 Data 卷约 395 GiB 已用，可用约 28 GiB</text>
+<text x="40.0" y="116.0" font-size="13" font-weight="400" fill="#68717d">生成时间：2026-04-20 17:14:43</text>
+<rect x="1260.0" y="41.0" width="18.0" height="18.0" rx="6" fill="#dff5ee" stroke="#1f9d7a" stroke-width="1"/>
+<text x="1288.0" y="55.0" font-size="13" font-weight="500" fill="#27303a">可清理/可重建</text>
+<rect x="1260.0" y="67.0" width="18.0" height="18.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1"/>
+<text x="1288.0" y="81.0" font-size="13" font-weight="500" fill="#27303a">按需审查</text>
+<rect x="1260.0" y="93.0" width="18.0" height="18.0" rx="6" fill="#edf0f4" stroke="#5b6472" stroke-width="1"/>
+<text x="1288.0" y="107.0" font-size="13" font-weight="500" fill="#27303a">系统/建议保留</text>
+<rect x="40.0" y="150.0" width="1305.2" height="38.0" rx="6" fill="#d88a21" stroke="#fbfaf7" stroke-width="1"/>
+<text x="48.0" y="175.0" font-size="13" font-weight="700" fill="#ffffff">Data 395 GiB</text>
+<rect x="1345.2" y="150.0" width="39.7" height="38.0" rx="6" fill="#5b6472" stroke="#fbfaf7" stroke-width="1"/>
+<rect x="1384.9" y="150.0" width="92.5" height="38.0" rx="6" fill="#1f9d7a" stroke="#fbfaf7" stroke-width="1"/>
+<rect x="1477.4" y="150.0" width="82.6" height="38.0" rx="6" fill="#c8cdd4" stroke="#fbfaf7" stroke-width="1"/>
+<text x="40.0" y="218.0" font-size="14" font-weight="500" fill="#3e4650">矩形面积越大，占用越大；绿色通常可重建，橙色需要人工确认，灰色建议保留或通过系统/应用工具清理。</text>
+<rect x="40.0" y="245.0" width="1340.2" height="735.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="48.0" y="265.0" font-size="12" font-weight="700" fill="#101418">/Users</text>
+<text x="48.0" y="283.0" font-size="12" font-weight="500" fill="#323942">348.4 GiB</text>
+<text x="48.0" y="301.0" font-size="10" font-weight="400" fill="#58606b">你的个人数据几乎都在这里</text>
+<rect x="47.0" y="311.0" width="871.4" height="661.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="55.0" y="331.0" font-size="12" font-weight="700" fill="#101418">~/ComfyUI</text>
+<text x="55.0" y="349.0" font-size="12" font-weight="500" fill="#323942">229.7 GiB</text>
+<text x="55.0" y="367.0" font-size="10" font-weight="400" fill="#58606b">最大占用；主要是模型文件</text>
+<rect x="54.0" y="377.0" width="443.5" height="587.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="62.0" y="397.0" font-size="12" font-weight="700" fill="#101418">models/unet</text>
+<text x="62.0" y="415.0" font-size="12" font-weight="500" fill="#323942">118.0 GiB</text>
+<text x="62.0" y="433.0" font-size="10" font-weight="400" fill="#58606b">大模型主干，删不用的单个模型最有效</text>
+<rect x="497.5" y="377.0" width="169.4" height="587.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="505.5" y="397.0" font-size="12" font-weight="700" fill="#101418">models/diffusion_mo…</text>
+<text x="505.5" y="415.0" font-size="12" font-weight="500" fill="#323942">45.1 GiB</text>
+<rect x="666.9" y="377.0" width="117.2" height="587.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="674.9" y="397.0" font-size="12" font-weight="700" fill="#101418">models/text_…</text>
+<text x="674.9" y="415.0" font-size="12" font-weight="500" fill="#323942">31.2 GiB</text>
+<rect x="784.1" y="377.0" width="72.8" height="587.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="857.0" y="377.0" width="23.0" height="587.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="880.0" y="377.0" width="14.1" height="587.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="894.1" y="377.0" width="10.9" height="587.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="905.1" y="377.0" width="5.6" height="587.0" rx="6" fill="#dff5ee" stroke="#1f9d7a" stroke-width="1.2"/>
+<rect x="910.7" y="377.0" width="0.7" height="587.0" rx="6" fill="#dff5ee" stroke="#1f9d7a" stroke-width="1.2"/>
+<rect x="918.4" y="311.0" width="145.6" height="661.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="926.4" y="331.0" font-size="12" font-weight="700" fill="#101418">~/Library</text>
+<text x="926.4" y="349.0" font-size="12" font-weight="500" fill="#323942">38.4 GiB</text>
+<rect x="925.4" y="377.0" width="131.6" height="230.5" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="933.4" y="397.0" font-size="12" font-weight="700" fill="#101418">Containers</text>
+<text x="933.4" y="415.0" font-size="12" font-weight="500" fill="#323942">21.6 GiB</text>
+<rect x="925.4" y="607.5" width="131.6" height="101.8" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="933.4" y="627.5" font-size="12" font-weight="700" fill="#101418">Application Su…</text>
+<text x="933.4" y="645.5" font-size="12" font-weight="500" fill="#323942">9.6 GiB</text>
+<rect x="925.4" y="709.3" width="131.6" height="95.5" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="933.4" y="729.3" font-size="12" font-weight="700" fill="#101418">Docker VM data</text>
+<text x="933.4" y="747.3" font-size="12" font-weight="500" fill="#323942">9.0 GiB</text>
+<rect x="925.4" y="804.8" width="131.6" height="63.8" rx="6" fill="#dff5ee" stroke="#1f9d7a" stroke-width="1.2"/>
+<text x="933.4" y="824.8" font-size="12" font-weight="700" fill="#101418">Caches</text>
+<text x="933.4" y="842.8" font-size="12" font-weight="500" fill="#323942">6.0 GiB</text>
+<rect x="925.4" y="868.6" width="131.6" height="53.5" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<text x="933.4" y="888.6" font-size="12" font-weight="700" fill="#101418">Chrome support</text>
+<text x="933.4" y="906.6" font-size="12" font-weight="500" fill="#323942">5.0 GiB</text>
+<rect x="925.4" y="922.1" width="131.6" height="41.9" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="1064.0" y="311.0" width="57.0" height="661.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="1121.0" y="311.0" width="48.5" height="661.0" rx="6" fill="#dff5ee" stroke="#1f9d7a" stroke-width="1.2"/>
+<rect x="1169.5" y="311.0" width="46.8" height="661.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="1216.2" y="311.0" width="36.9" height="661.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="1253.1" y="311.0" width="33.7" height="661.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="1286.8" y="311.0" width="30.8" height="661.0" rx="6" fill="#dff5ee" stroke="#1f9d7a" stroke-width="1.2"/>
+<rect x="1317.6" y="311.0" width="21.0" height="661.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="1338.5" y="311.0" width="20.8" height="661.0" rx="6" fill="#dff5ee" stroke="#1f9d7a" stroke-width="1.2"/>
+<rect x="1359.3" y="311.0" width="13.8" height="661.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="1380.2" y="245.0" width="90.6" height="735.0" rx="6" fill="#fff0d7" stroke="#d88a21" stroke-width="1.2"/>
+<rect x="1470.7" y="245.0" width="44.3" height="735.0" rx="6" fill="#edf0f4" stroke="#5b6472" stroke-width="1.2"/>
+<rect x="1515.1" y="245.0" width="20.5" height="735.0" rx="6" fill="#edf0f4" stroke="#5b6472" stroke-width="1.2"/>
+<rect x="1535.6" y="245.0" width="15.3" height="735.0" rx="6" fill="#edf0f4" stroke="#5b6472" stroke-width="1.2"/>
+<rect x="1550.8" y="245.0" width="9.1" height="735.0" rx="6" fill="#dff5ee" stroke="#1f9d7a" stroke-width="1.2"/>
+<rect x="1560.0" y="245.0" width="0.0" height="735.0" rx="6" fill="#edf0f4" stroke="#5b6472" stroke-width="1.2"/>
+<text x="40.0" y="1016.0" font-size="15" font-weight="700" fill="#101418">最主要结论：~/ComfyUI 约 229.7 GiB，占 Data 卷已用空间的 58%；清理模型比清理普通缓存更有效。</text>
+</svg>
