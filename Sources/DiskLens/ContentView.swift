@@ -17,6 +17,7 @@ struct ContentView: View {
             statusBar
         }
         .task {
+            model.loadCachedResult()
             if model.result == nil && !model.isScanning {
                 model.startScan()
             }
@@ -66,6 +67,23 @@ struct ContentView: View {
                     Label("导出", systemImage: "square.and.arrow.down")
                 }
                 .disabled(model.result == nil)
+
+                Button {
+                    model.toggleDuplicates()
+                } label: {
+                    Label("重复文件", systemImage: "doc.on.doc.fill")
+                }
+                .disabled(model.result == nil)
+
+                Button {
+                    model.showHistory.toggle()
+                } label: {
+                    Label("历史", systemImage: "chart.xyaxis.line")
+                }
+                .disabled(model.scanHistory.isEmpty)
+                .sheet(isPresented: $model.showHistory) {
+                    ScanHistoryView(history: model.scanHistory)
+                }
             }
 
             HStack(spacing: 10) {
@@ -98,11 +116,6 @@ struct ContentView: View {
                 .frame(width: 110)
 
                 Spacer()
-
-                Text(model.selectedPath == nil ? "未选中路径" : "已选中：\(model.selectedItem?.name ?? "")")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
         }
         .padding(.horizontal, 18)
@@ -135,6 +148,19 @@ struct ContentView: View {
                     .frame(minWidth: 390, idealWidth: 460)
             }
             Divider()
+            if model.showDuplicates, let dupResult = model.duplicateResult {
+                DuplicatePanel(result: dupResult)
+                Divider()
+            } else if model.isDetectingDuplicates {
+                HStack {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("正在检测重复文件…")
+                        .foregroundStyle(.secondary)
+                }
+                .padding(12)
+                Divider()
+            }
             ItemsTable(
                 items: model.filteredItems,
                 copyPath: model.copyPath,
@@ -157,9 +183,9 @@ struct ContentView: View {
                     } label: {
                         Label("取消选中", systemImage: "xmark.circle.fill")
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .tint(.secondary)
+                    .tint(.red)
                 }
             }
             if let selected = model.selectedItem {
@@ -224,7 +250,13 @@ struct ContentView: View {
                 .opacity(model.isScanning ? 1 : 0)
             Text(model.isScanning ? "正在建立磁盘画像…" : "点击开始扫描")
                 .font(.title3.weight(.semibold))
-            Text("第一版只读取磁盘占用并生成建议，不删除、不移动、不执行清理命令。")
+            if !model.isScanning, let age = model.lastScanAge, model.cachedResult != nil {
+                Button("加载上次扫描结果（\(age)）") {
+                    model.restoreCachedResult()
+                }
+                .buttonStyle(.bordered)
+            }
+            Text("只读取磁盘占用并生成建议，不删除、不移动、不执行清理命令。")
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

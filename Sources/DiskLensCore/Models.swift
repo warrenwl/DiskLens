@@ -116,7 +116,8 @@ public struct ScanProgress: Codable, Equatable, Sendable {
     }
 }
 
-public struct ScanSummary: Codable, Equatable, Sendable {
+public struct ScanSummary: Codable, Equatable, Sendable, Identifiable {
+    public var id: Date { scannedAt }
     public var schemaVersion: Int
     public var totalBytes: Int64
     public var usedBytes: Int64

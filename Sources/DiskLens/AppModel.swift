@@ -20,10 +20,65 @@ final class AppModel: ObservableObject {
     @Published var sizeThreshold: SizeThreshold = .all
     @Published var sortOption: ItemSortOption = .size
     @Published var loadingPath: String?
+    @Published var cachedResult: ScanResult?
+    @Published var delta: ScanDelta?
+    @Published var lastScanAge: String?
+    @Published var scanHistory: [ScanSummary] = []
+    @Published var showHistory = false
+    @Published var duplicateResult: DuplicateResult?
+    @Published var isDetectingDuplicates = false
+    @Published var showDuplicates = false
 
     private let scanner = DiskScanner()
     private var scanTask: Task<Void, Never>?
+    private var duplicateTask: Task<Void, Never>?
     private var loadedPaths: Set<String> = []
+
+    func loadCachedResult() {
+        if let cached = try? ScanCacheManager.load() {
+            cachedResult = cached
+            let interval = Date().timeIntervalSince(cached.summary.scannedAt)
+            lastScanAge = formatRelativeTime(interval)
+        }
+        scanHistory = (try? ScanCacheManager.loadHistory()) ?? []
+    }
+
+    func restoreCachedResult() {
+        guard let cached = cachedResult else { return }
+        result = cached
+        loadedPaths = Set(cached.items.map(\.path))
+        status = "已恢复上次扫描结果"
+    }
+
+    func startDuplicateDetection() {
+        guard let result, duplicateResult == nil else { return }
+        isDetectingDuplicates = true
+        duplicateTask = Task {
+            let dupResult = await DuplicateDetector.detect(in: result.items) { progress in
+                Task { @MainActor in
+                    self.status = "重复检测：\(progress.phase.rawValue) \(progress.completedFiles)/\(progress.totalFiles)"
+                }
+            }
+            guard !Task.isCancelled else { return }
+            duplicateResult = dupResult
+            isDetectingDuplicates = false
+            status = "重复检测完成：\(dupResult.totalDuplicateFiles) 个重复，浪费 \(ByteFormat.string(dupResult.totalWastedBytes))"
+        }
+    }
+
+    func toggleDuplicates() {
+        if duplicateResult == nil && !isDetectingDuplicates {
+            startDuplicateDetection()
+        }
+        showDuplicates.toggle()
+    }
+
+    private func formatRelativeTime(_ interval: TimeInterval) -> String {
+        if interval < 60 { return "\(Int(interval)) 秒前" }
+        if interval < 3600 { return "\(Int(interval / 60)) 分钟前" }
+        if interval < 86400 { return "\(Int(interval / 3600)) 小时前" }
+        return "\(Int(interval / 86400)) 天前"
+    }
 
     var filteredItems: [ScanItem] {
         guard let result else { return [] }
@@ -101,6 +156,20 @@ final class AppModel: ObservableObject {
             selectedPath = nil
             isScanning = false
             progress = nil
+            duplicateResult = nil
+            showDuplicates = false
+            isDetectingDuplicates = false
+            duplicateTask?.cancel()
+
+            if let cached = self.cachedResult {
+                self.delta = ScanCacheManager.computeDelta(old: cached, new: scanResult)
+            }
+            try? ScanCacheManager.save(scanResult)
+            self.cachedResult = scanResult
+            self.lastScanAge = "刚刚"
+            try? ScanCacheManager.appendToHistory(scanResult.summary)
+            self.scanHistory = (try? ScanCacheManager.loadHistory()) ?? []
+
             if scanResult.summary.isCancelled {
                 status = "扫描已取消：保留部分结果 \(ByteFormat.string(scanResult.summary.scannedBytes))"
             } else {
