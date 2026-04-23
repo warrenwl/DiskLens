@@ -78,33 +78,63 @@ struct ContentView: View {
 
                 Spacer(minLength: 18)
 
-                HStack(alignment: .center, spacing: 34) {
-                    VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: 24) {
+                    VStack(alignment: .center, spacing: 0) {
+                        Spacer(minLength: 20)
                         HomeSignalMark()
-                            .padding(.bottom, 34)
-                        Text("看清磁盘")
-                            .font(.system(size: 52, weight: .bold))
-                            .tracking(0)
-                        Text("谨慎清理")
-                            .font(.system(size: 52, weight: .bold))
-                            .tracking(0)
-                        Text("用 Treemap 定位空间大户，用复核式清理把安全项目统一移入废纸篓。")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                            .lineSpacing(4)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.top, 18)
-                            .frame(maxWidth: 620, alignment: .leading)
-                        HStack(spacing: 10) {
-                            HomeTrustPill(text: "只移入废纸篓", systemImage: "trash")
-                            HomeTrustPill(text: "默认保护用户数据", systemImage: "lock.shield")
-                            HomeTrustPill(text: "可视化定位", systemImage: "square.grid.3x3")
+                            .padding(.bottom, 24)
+                        HStack(spacing: 0) {
+                            Text("看清磁盘")
+                                .font(.system(size: 44, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.primary)
+                            Text("谨慎")
+                                .font(.system(size: 44, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.primary)
+                            Text("清理")
+                                .font(.system(size: 44, weight: .heavy, design: .rounded))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.green, .teal],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
                         }
-                        .padding(.top, 26)
+                        .fixedSize()
+                        Text("用 Treemap 定位空间大户，用复核式清理把安全项目统一移入废纸篓。")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .lineSpacing(5)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 14)
+                            .frame(maxWidth: 460)
+                        HStack(spacing: 10) {
+                            HomeTrustPill(text: "只移入废纸篓", systemImage: "trash", tint: .green)
+                            HomeTrustPill(text: "默认保护用户数据", systemImage: "lock.shield", tint: .blue)
+                            HomeTrustPill(text: "可视化定位", systemImage: "square.grid.3x3", tint: .orange)
+                        }
+                        .padding(.top, 22)
+
+                        Spacer(minLength: 20)
+
+                        HomeDiskUsageBar(summary: model.result?.summary, cachedSummary: model.cachedResult?.summary)
+
+                        Spacer(minLength: 20)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(.secondary.opacity(0.10), lineWidth: 0.5)
+                    }
 
                     VStack(spacing: 14) {
+                        Spacer(minLength: 20)
                         HomeStatusStrip(
                             title: model.cachedResult == nil ? "未加载历史扫描" : "已有历史扫描",
                             subtitle: model.lastScanAge.map { "上次扫描 \($0)" } ?? "进入磁盘全景开始第一次扫描"
@@ -123,8 +153,24 @@ struct ContentView: View {
                             tint: .green,
                             action: model.openCleanup
                         )
+
+                        Spacer(minLength: 12)
+
+                        HomeFeatureRow()
+
+                        Spacer(minLength: 20)
                     }
                     .frame(width: 430)
+                    .padding(.horizontal, 18)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                            .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(.secondary.opacity(0.10), lineWidth: 0.5)
+                    }
                 }
                 .frame(maxWidth: 1160)
                 .padding(.horizontal, 34)
@@ -148,13 +194,14 @@ struct ContentView: View {
     }
 
     private var panoramaToolbar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
                 Button {
                     model.openHome()
                 } label: {
                     Label("首页", systemImage: "chevron.left")
                 }
+                .buttonStyle(.bordered)
 
                 Picker("扫描", selection: $model.selectedMode) {
                     ForEach(ScanMode.allCases) { mode in
@@ -162,7 +209,7 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 390)
+                .frame(width: 380)
                 .disabled(model.isScanning)
 
                 Button {
@@ -170,6 +217,7 @@ struct ContentView: View {
                 } label: {
                     Label("选择目录", systemImage: "folder.badge.gearshape")
                 }
+                .buttonStyle(.bordered)
                 .disabled(model.isScanning)
 
                 Button {
@@ -178,12 +226,7 @@ struct ContentView: View {
                     Label(model.isScanning ? "停止" : "开始扫描", systemImage: model.isScanning ? "stop.fill" : "play.fill")
                 }
                 .buttonStyle(.borderedProminent)
-
-                Text(model.status)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                .tint(model.isScanning ? .red : .blue)
 
                 Spacer()
 
@@ -208,10 +251,16 @@ struct ContentView: View {
                 }
             }
 
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
                 TextField("搜索路径、分类、建议", text: $model.searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 240, idealWidth: 320)
+                    .textFieldStyle(.plain)
+                    .font(.callout)
+
+                Divider()
+                    .frame(height: 18)
 
                 Picker("筛选", selection: $model.riskFilter) {
                     ForEach(RiskFilter.allCases) { filter in
@@ -219,7 +268,7 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 150)
+                .frame(width: 140)
 
                 Picker("大小", selection: $model.sizeThreshold) {
                     ForEach(SizeThreshold.allCases) { threshold in
@@ -227,7 +276,7 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 120)
+                .frame(width: 110)
 
                 Picker("排序", selection: $model.sortOption) {
                     ForEach(ItemSortOption.allCases) { option in
@@ -235,14 +284,24 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 110)
+                .frame(width: 100)
 
                 Spacer()
+
+                Text(model.status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 260, alignment: .trailing)
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .textBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 
     private var cleanupScreen: some View {
@@ -264,8 +323,9 @@ struct ContentView: View {
             } label: {
                 Label("首页", systemImage: "chevron.left")
             }
+            .buttonStyle(.bordered)
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text("一键清理")
                     .font(.headline)
                 Text("已选 \(model.selectedCleanupCandidates.count) 项，约 \(ByteFormat.string(model.selectedCleanupBytes))")
@@ -275,11 +335,20 @@ struct ContentView: View {
 
             Spacer()
 
+            if model.isPreparingCleanup || model.isExecutingCleanup {
+                ProgressView()
+                    .scaleEffect(0.7)
+                Text(model.isPreparingCleanup ? "检索中…" : "清理中…")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Button {
                 model.prepareCleanupPlan()
             } label: {
                 Label("重新检索", systemImage: "arrow.clockwise")
             }
+            .buttonStyle(.bordered)
             .disabled(model.isPreparingCleanup || model.isExecutingCleanup)
 
             Button {
@@ -288,10 +357,12 @@ struct ContentView: View {
                 Label(model.isExecutingCleanup ? "清理中" : "一键清理", systemImage: model.isExecutingCleanup ? "hourglass" : "trash")
             }
             .buttonStyle(.borderedProminent)
+            .tint(.green)
             .disabled(!model.canRunCleanup)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 
     private var cleanupPreparingView: some View {
@@ -383,76 +454,95 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("选中详情")
-                    .font(.title3.weight(.semibold))
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
                 Spacer()
                 if model.selectedPath != nil {
                     Button {
                         model.clearSelection()
                     } label: {
-                        Label("取消选中", systemImage: "xmark.circle.fill")
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .tint(.red)
+                    .buttonStyle(.plain)
                 }
             }
+
             if let selected = model.selectedItem {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(selected.name)
-                        .font(.headline)
+                        .font(.title3.weight(.bold))
+                        .lineLimit(1)
                     Text(selected.path)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text(selected.detail)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    HStack {
+                        .textSelection(.enabled)
+
+                    Divider()
+
+                    HStack(spacing: 6) {
                         RiskBadge(risk: selected.risk)
                         Text(ByteFormat.string(selected.sizeBytes))
-                            .font(.callout.monospacedDigit())
+                            .font(.callout.weight(.bold).monospacedDigit())
                         Spacer()
                         if selected.kind == .directory && selected.path != model.treemapRootPath {
                             Button {
                                 model.enterSelectedItem()
                             } label: {
-                                Label(model.loadingPath == selected.path ? "加载中" : "进入目录", systemImage: model.loadingPath == selected.path ? "hourglass" : "arrow.down.right.circle")
+                                Label(model.loadingPath == selected.path ? "加载中" : "进入", systemImage: model.loadingPath == selected.path ? "hourglass" : "arrow.down.right.circle")
                             }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
                             .disabled(model.loadingPath == selected.path)
                         }
                     }
+
+                    Text(selected.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+
                     HStack(spacing: 8) {
                         PanoramaInspectorStat(title: "分类", value: selected.category.label)
                         PanoramaInspectorStat(title: "类型", value: selected.kind.rawValue)
                     }
                 }
-                .padding(12)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .shadow(color: .black.opacity(0.03), radius: 3, y: 1)
+                )
                 .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(.secondary.opacity(0.12), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(.secondary.opacity(0.10), lineWidth: 0.5)
                 }
             }
+
             if model.selectedItem == nil {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .center, spacing: 10) {
+                    Spacer()
                     Image(systemName: "cursorarrow.click")
-                        .font(.largeTitle)
+                        .font(.system(size: 28))
+                        .foregroundStyle(.quaternary)
+                    Text("点击矩形查看详情")
+                        .font(.callout.weight(.medium))
                         .foregroundStyle(.secondary)
-                    Text("点击左侧矩形查看路径详情")
-                        .font(.headline)
-                    Text("磁盘全景只用于空间观察和定位。清理操作请回到首页进入一键清理。")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text("磁盘全景只用于空间观察和定位。\n清理操作请回到首页进入一键清理。")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                    Spacer()
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(.secondary.opacity(0.12), lineWidth: 1)
-                }
+                .frame(maxWidth: .infinity)
+                .padding(14)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
             }
             Spacer()
         }
@@ -478,24 +568,33 @@ struct ContentView: View {
     }
 
     private var statusBar: some View {
-        HStack {
+        HStack(spacing: 8) {
             if model.isScanning {
                 ProgressView()
-                    .scaleEffect(0.7)
+                    .scaleEffect(0.6)
+            } else if model.isExecutingCleanup || model.isPreparingCleanup {
+                ProgressView()
+                    .scaleEffect(0.6)
             }
             Text(model.status)
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .truncationMode(.middle)
             Spacer()
             if let url = model.lastExportURL {
-                Text(url.path)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: "doc.fill")
+                        .font(.caption2)
+                    Text(url.lastPathComponent)
+                        .font(.caption)
+                }
+                .foregroundStyle(.tertiary)
             }
         }
-        .font(.footnote)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 7)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.4))
     }
 }
 
@@ -585,16 +684,22 @@ private struct MetricView: View {
     let systemImage: String
 
     var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 8) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(.blue.opacity(0.08))
+                    .frame(width: 28, height: 28)
+                Image(systemName: systemImage)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.blue)
+            }
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
                 Text(value)
-                    .font(.callout.weight(.semibold))
+                    .font(.callout.weight(.bold).monospacedDigit())
             }
         }
     }
@@ -606,40 +711,58 @@ private struct HomeActionButton: View {
     let systemImage: String
     let tint: Color
     let action: () -> Void
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 18) {
                 ZStack {
                     Circle()
-                        .fill(tint.opacity(0.12))
+                        .fill(
+                            RadialGradient(
+                                colors: [tint.opacity(isHovered ? 0.28 : 0.14), tint.opacity(0.04)],
+                                center: .center,
+                                startRadius: 4,
+                                endRadius: 34
+                            )
+                        )
                     Image(systemName: systemImage)
-                        .font(.system(size: 32, weight: .semibold))
+                        .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(tint)
                 }
-                .frame(width: 68, height: 68)
+                .frame(width: 64, height: 64)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(title)
-                        .font(.title2.weight(.bold))
+                        .font(.title3.weight(.bold))
                         .foregroundStyle(.primary)
                     Text(subtitle)
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
-                Image(systemName: "arrow.right")
-                    .foregroundStyle(.secondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(tint.opacity(isHovered ? 0.8 : 0.3))
             }
-            .padding(22)
-            .frame(maxWidth: .infinity, minHeight: 132)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 18)
+            .frame(maxWidth: .infinity, minHeight: 108)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .shadow(color: isHovered ? tint.opacity(0.12) : .black.opacity(0.03), radius: isHovered ? 8 : 2, y: isHovered ? 3 : 1)
+            )
             .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(tint.opacity(0.24), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(tint.opacity(isHovered ? 0.4 : 0.18), lineWidth: 1)
             }
+            .scaleEffect(isHovered ? 1.015 : 1.0)
+            .animation(.easeOut(duration: 0.18), value: isHovered)
         }
         .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -649,12 +772,18 @@ private struct HomeStatusStrip: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
+            ZStack {
+                Circle()
+                    .fill(.secondary.opacity(0.08))
+                    .frame(width: 36, height: 36)
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.callout.weight(.semibold))
+                    .foregroundStyle(.primary)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -662,54 +791,228 @@ private struct HomeStatusStrip: View {
             Spacer()
         }
         .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: .black.opacity(0.02), radius: 2, y: 1)
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(.secondary.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(.secondary.opacity(0.10), lineWidth: 0.5)
         }
     }
 }
 
 private struct HomeSignalMark: View {
+    @State private var pulse = false
+    @State private var wavePhase: CGFloat = 0
+
     var body: some View {
         ZStack(alignment: .center) {
             Circle()
-                .fill(Color.green.opacity(0.10))
-                .frame(width: 128, height: 128)
+                .fill(
+                    RadialGradient(
+                        colors: [Color.green.opacity(0.18), Color.green.opacity(0.04)],
+                        center: .center,
+                        startRadius: 30,
+                        endRadius: 100
+                    )
+                )
+                .frame(width: 200, height: 200)
+                .scaleEffect(pulse ? 1.06 : 1.0)
+
             Circle()
-                .stroke(Color.green.opacity(0.24), lineWidth: 1)
-                .frame(width: 98, height: 98)
+                .stroke(
+                    AngularGradient(
+                        colors: [.green.opacity(0.08), .green.opacity(0.35), .green.opacity(0.08)],
+                        center: .center
+                    ),
+                    lineWidth: 1.5
+                )
+                .frame(width: 150, height: 150)
+                .rotationEffect(.degrees(Double(wavePhase)))
+
+            Circle()
+                .stroke(Color.green.opacity(0.12), lineWidth: 0.5)
+                .frame(width: 110, height: 110)
+
             Path { path in
-                path.move(to: CGPoint(x: 0, y: 42))
-                path.addLine(to: CGPoint(x: 36, y: 42))
-                path.addLine(to: CGPoint(x: 49, y: 13))
-                path.addLine(to: CGPoint(x: 68, y: 71))
-                path.addLine(to: CGPoint(x: 88, y: 32))
-                path.addLine(to: CGPoint(x: 105, y: 42))
-                path.addLine(to: CGPoint(x: 132, y: 42))
+                path.move(to: CGPoint(x: 0, y: 56))
+                path.addLine(to: CGPoint(x: 40, y: 56))
+                path.addLine(to: CGPoint(x: 58, y: 16))
+                path.addLine(to: CGPoint(x: 82, y: 96))
+                path.addLine(to: CGPoint(x: 104, y: 28))
+                path.addLine(to: CGPoint(x: 125, y: 56))
+                path.addLine(to: CGPoint(x: 175, y: 56))
             }
-            .stroke(Color.green, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
-            .frame(width: 132, height: 84)
+            .stroke(
+                LinearGradient(
+                    colors: [.green.opacity(0.5), .green, .green.opacity(0.5)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ),
+                style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round)
+            )
+            .frame(width: 175, height: 112)
+            .shadow(color: .green.opacity(0.4), radius: 8)
         }
-        .frame(width: 150, height: 150)
+        .frame(width: 220, height: 220)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+            withAnimation(.linear(duration: 8).repeatForever(autoreverses: false)) {
+                wavePhase = 360
+            }
+        }
+    }
+}
+
+private struct HomeDiskUsageBar: View {
+    let summary: ScanSummary?
+    let cachedSummary: ScanSummary?
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var data: ScanSummary? { summary ?? cachedSummary }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("磁盘用量")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if let data {
+                    Text("\(ByteFormat.string(data.usedBytes)) / \(ByteFormat.string(data.totalBytes))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let data {
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(.secondary.opacity(colorScheme == .dark ? 0.18 : 0.10))
+                        let ratio = data.totalBytes > 0 ? CGFloat(data.usedBytes) / CGFloat(data.totalBytes) : 0
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: ratio > 0.85 ? [.orange, .red] : [.green, .teal],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .frame(width: proxy.size.width * min(ratio, 1.0))
+                    }
+                }
+                .frame(height: 8)
+
+                HStack(spacing: 16) {
+                    HomeDiskStat(label: "已用", value: ByteFormat.string(data.usedBytes), color: .green)
+                    HomeDiskStat(label: "可用", value: ByteFormat.string(data.availableBytes), color: .blue)
+                    HomeDiskStat(label: "Data 卷", value: ByteFormat.string(data.dataVolumeBytes), color: .secondary)
+                }
+            } else {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(.secondary.opacity(0.06))
+                    .frame(height: 8)
+                    .overlay {
+                        Text("扫描后显示用量")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: 480)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.secondary.opacity(colorScheme == .dark ? 0.06 : 0.04))
+        )
+    }
+}
+
+private struct HomeDiskStat: View {
+    let label: String
+    let value: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            Text(value)
+                .font(.caption.weight(.semibold).monospacedDigit())
+                .foregroundStyle(color)
+        }
+    }
+}
+
+private struct HomeFeatureRow: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("核心能力")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                HomeFeatureItem(icon: "chart.bar.doc.horizontal", title: "智能分类", desc: "AI模型、缓存、构建工具")
+                HomeFeatureItem(icon: "doc.on.doc", title: "重复检测", desc: "SHA-256 精确比对")
+                HomeFeatureItem(icon: "app.dashed", title: "残留扫描", desc: "自动发现卸载残留")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(.secondary.opacity(0.04))
+        )
+    }
+}
+
+private struct HomeFeatureItem: View {
+    let icon: String
+    let title: String
+    let desc: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Image(systemName: icon)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.caption.weight(.semibold))
+            Text(desc)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
 private struct HomeTrustPill: View {
     let text: String
     let systemImage: String
+    var tint: Color = .secondary
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
-                .font(.caption.weight(.semibold))
+                .font(.caption.weight(.bold))
             Text(text)
                 .font(.caption.weight(.semibold))
         }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(.secondary.opacity(0.08), in: Capsule())
+        .foregroundStyle(tint)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(tint.opacity(0.10), in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(tint.opacity(0.18), lineWidth: 0.5)
+        }
     }
 }
 
@@ -719,27 +1022,34 @@ private struct CleanupSectionView: View {
     let toggleCandidate: (CleanupCandidate) -> Void
     let revealInFinder: (String) -> Void
     let copyPath: (String) -> Void
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var isExpanded = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
                 Button(action: toggleSection) {
                     Image(systemName: section.allSelected ? "checkmark.square.fill" : "square")
                         .foregroundStyle(section.kind.defaultSelected ? .green : .secondary)
+                        .font(.body)
                 }
                 .buttonStyle(.plain)
 
-                Image(systemName: section.kind.systemImage)
-                    .foregroundStyle(section.kind.defaultSelected ? .green : .orange)
-                    .font(.title3)
-                    .frame(width: 24)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(sectionTint.opacity(colorScheme == .dark ? 0.20 : 0.12))
+                        .frame(width: 28, height: 28)
+                    Image(systemName: section.kind.systemImage)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(sectionTint)
+                }
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(section.kind.title)
-                        .font(.title3.weight(.bold))
+                        .font(.headline)
                     Text(section.kind.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
 
                 Spacer()
@@ -748,108 +1058,150 @@ private struct CleanupSectionView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Text(ByteFormat.string(section.selectedBytes))
-                    .font(.caption.monospacedDigit().weight(.semibold))
-            }
-            .padding(.bottom, 2)
+                    .font(.caption.monospacedDigit().weight(.bold))
+                    .foregroundStyle(section.selectedBytes > 0 ? sectionTint : .secondary)
 
-            if section.candidates.isEmpty {
-                Text("暂无候选项")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 28)
-            } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 285), spacing: 12)], spacing: 12) {
-                    ForEach(section.candidates.prefix(24)) { candidate in
-                        CleanupCandidateCard(
-                            candidate: candidate,
-                            toggle: { toggleCandidate(candidate) },
-                            revealInFinder: revealInFinder,
-                            copyPath: copyPath
-                        )
+                if !section.candidates.isEmpty {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isExpanded.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .rotationEffect(.degrees(isExpanded ? 0 : -90))
+                    }
+                    .buttonStyle(.plain)
+                    .help(isExpanded ? "收起列表" : "展开列表")
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if !section.candidates.isEmpty {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isExpanded.toggle()
                     }
                 }
-                if section.candidates.count > 24 {
-                    Text("还有 \(section.candidates.count - 24) 项未显示")
-                        .font(.caption2)
+            }
+
+            if isExpanded {
+                if section.candidates.isEmpty {
+                    Text("暂无候选项")
+                        .font(.caption)
                         .foregroundStyle(.tertiary)
-                        .padding(.leading, 28)
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 12)
+                } else {
+                    Divider()
+                        .padding(.horizontal, 14)
+                    VStack(spacing: 0) {
+                        ForEach(Array(section.candidates.prefix(24).enumerated()), id: \.element.id) { index, candidate in
+                            CleanupCandidateRow(
+                                candidate: candidate,
+                                toggle: { toggleCandidate(candidate) },
+                                revealInFinder: revealInFinder,
+                                copyPath: copyPath
+                            )
+                            if index < min(section.candidates.count, 24) - 1 {
+                                Divider()
+                                    .padding(.leading, 44)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+
+                    if section.candidates.count > 24 {
+                        Text("还有 \(section.candidates.count - 24) 项未显示")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .padding(.horizontal, 14)
+                            .padding(.bottom, 10)
+                    }
                 }
             }
         }
-        .padding(16)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+                .shadow(color: .black.opacity(0.02), radius: 2, y: 1)
+        )
         .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(.secondary.opacity(0.12), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(.secondary.opacity(0.08), lineWidth: 0.5)
+        }
+    }
+
+    private var sectionTint: Color {
+        switch section.kind {
+        case .safe: return .green
+        case .leftovers: return .blue
+        case .duplicates: return .orange
+        case .largeFiles: return .purple
         }
     }
 }
 
-private struct CleanupCandidateCard: View {
+private struct CleanupCandidateRow: View {
     let candidate: CleanupCandidate
     let toggle: () -> Void
     let revealInFinder: (String) -> Void
     let copyPath: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(alignment: .top, spacing: 8) {
-                Button(action: toggle) {
-                    Image(systemName: candidate.isSelected ? "checkmark.square.fill" : "square")
-                        .foregroundStyle(candidate.isSelected ? .green : .secondary)
-                }
-                .buttonStyle(.plain)
+        HStack(spacing: 10) {
+            Button(action: toggle) {
+                Image(systemName: candidate.isSelected ? "checkmark.square.fill" : "square")
+                    .foregroundStyle(candidate.isSelected ? .green : .secondary)
+            }
+            .buttonStyle(.plain)
 
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(candidate.title)
-                        .font(.callout.weight(.semibold))
-                        .lineLimit(1)
-                    Text(ByteFormat.string(candidate.sizeBytes))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                RiskBadge(risk: candidate.risk)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(candidate.title)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                Text(candidate.path)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
 
-            Text(candidate.path)
-                .font(.caption)
+            Spacer()
+
+            Text(ByteFormat.string(candidate.sizeBytes))
+                .font(.caption.monospacedDigit().weight(.semibold))
                 .foregroundStyle(.secondary)
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .help(candidate.path)
 
-            Text(candidate.detail)
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
+            RiskBadge(risk: candidate.risk)
 
-            HStack {
-                Spacer()
-                Button {
-                    copyPath(candidate.path)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                }
-                .buttonStyle(.borderless)
-                .help("复制路径")
-                Button {
-                    revealInFinder(candidate.path)
-                } label: {
-                    Image(systemName: "finder")
-                }
-                .buttonStyle(.borderless)
-                .help("Finder 中显示")
+            Button {
+                copyPath(candidate.path)
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.caption)
             }
+            .buttonStyle(.borderless)
+            .help("复制路径")
+
+            Button {
+                revealInFinder(candidate.path)
+            } label: {
+                Image(systemName: "finder")
+                    .font(.caption)
+            }
+            .buttonStyle(.borderless)
+            .help("Finder 中显示")
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
-        .background(candidate.isSelected ? Color.green.opacity(0.11) : Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(candidate.isSelected ? Color.green.opacity(0.45) : Color.secondary.opacity(0.14), lineWidth: 1)
-        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .background(
+            candidate.isSelected ? Color.green.opacity(0.06) : Color.clear,
+            in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+        )
     }
 }
 
@@ -858,36 +1210,58 @@ private struct PanoramaInspectorStat: View {
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.tertiary)
             Text(value)
-                .font(.callout.monospacedDigit().weight(.semibold))
+                .font(.caption.weight(.semibold))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(9)
-        .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
 private struct CleanupResultBanner: View {
     let result: CleanupExecutionResult
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: result.failures.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                .foregroundStyle(result.failures.isEmpty ? .green : .orange)
-            Text("已移入废纸篓 \(result.cleaned.count) 项，约 \(ByteFormat.string(result.cleanedBytes))")
-                .font(.callout.weight(.semibold))
+            ZStack {
+                Circle()
+                    .fill(result.failures.isEmpty ? Color.green.opacity(0.14) : Color.orange.opacity(0.14))
+                    .frame(width: 30, height: 30)
+                Image(systemName: result.failures.isEmpty ? "checkmark" : "exclamationmark.triangle.fill")
+                    .font(.callout.weight(.bold))
+                    .foregroundStyle(result.failures.isEmpty ? .green : .orange)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text("已移入废纸篓 \(result.cleaned.count) 项")
+                    .font(.callout.weight(.bold))
+                Text("释放约 \(ByteFormat.string(result.cleanedBytes))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if !result.failures.isEmpty {
+                Spacer()
                 Text("失败 \(result.failures.count) 项")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.orange)
             }
             Spacer()
         }
         .padding(12)
-        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(result.failures.isEmpty ? Color.green.opacity(colorScheme == .dark ? 0.08 : 0.06) : Color.orange.opacity(colorScheme == .dark ? 0.08 : 0.06))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(result.failures.isEmpty ? Color.green.opacity(0.2) : Color.orange.opacity(0.2), lineWidth: 0.5)
+        }
     }
 }
 
@@ -965,25 +1339,30 @@ private struct RiskBadge: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Text(risk.label)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(color.foreground)
-            .background(color.background, in: Capsule())
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color.foreground)
+                .frame(width: 6, height: 6)
+            Text(risk.label)
+                .font(.caption2.weight(.bold))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .foregroundStyle(color.foreground)
+        .background(color.background, in: Capsule())
     }
 
     private var color: (background: Color, foreground: Color) {
         let isDark = colorScheme == .dark
         switch risk {
         case .safeClean:
-            return (Color.green.opacity(isDark ? 0.25 : 0.18), Color.green)
+            return (Color.green.opacity(isDark ? 0.22 : 0.14), Color.green)
         case .review:
-            return (Color.orange.opacity(isDark ? 0.28 : 0.20), Color.orange)
+            return (Color.orange.opacity(isDark ? 0.25 : 0.16), Color.orange)
         case .keep:
-            return (Color.gray.opacity(isDark ? 0.25 : 0.18), Color.secondary)
+            return (Color.gray.opacity(isDark ? 0.22 : 0.14), .secondary)
         case .system:
-            return (Color.blue.opacity(isDark ? 0.22 : 0.16), Color.blue)
+            return (Color.blue.opacity(isDark ? 0.22 : 0.14), Color.blue)
         }
     }
 }
