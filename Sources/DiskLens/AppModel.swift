@@ -4,9 +4,101 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum AppScreen {
+    case home
+    case panorama
+    case cleanup
+}
+
+enum CleanupSectionKind: String, CaseIterable, Identifiable {
+    case safe
+    case leftovers
+    case duplicates
+    case largeFiles
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .safe: return "安全清理"
+        case .leftovers: return "卸载残留"
+        case .duplicates: return "重复文件"
+        case .largeFiles: return "大文件"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .safe: return "默认选择，可移入废纸篓"
+        case .leftovers: return "默认选择，只处理安全残留"
+        case .duplicates: return "默认不选，保留每组第一个文件"
+        case .largeFiles: return "默认不选，需确认用途"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .safe: return "checkmark.shield"
+        case .leftovers: return "app.badge.checkmark"
+        case .duplicates: return "doc.on.doc"
+        case .largeFiles: return "tray.full"
+        }
+    }
+
+    var defaultSelected: Bool {
+        self == .safe || self == .leftovers
+    }
+}
+
+struct CleanupCandidate: Identifiable, Equatable {
+    var id: String { path }
+    var title: String
+    var path: String
+    var sizeBytes: Int64
+    var detail: String
+    var risk: RiskLevel
+    var isSelected: Bool
+}
+
+struct CleanupSection: Identifiable, Equatable {
+    var id: CleanupSectionKind { kind }
+    var kind: CleanupSectionKind
+    var candidates: [CleanupCandidate]
+
+    var selectedBytes: Int64 {
+        candidates.filter(\.isSelected).reduce(0) { $0 + $1.sizeBytes }
+    }
+
+    var totalBytes: Int64 {
+        candidates.reduce(0) { $0 + $1.sizeBytes }
+    }
+
+    var selectedCount: Int {
+        candidates.filter(\.isSelected).count
+    }
+
+    var allSelected: Bool {
+        !candidates.isEmpty && candidates.allSatisfy(\.isSelected)
+    }
+}
+
+struct CleanupExecutionResult {
+    var cleaned: [CleanupCandidate]
+    var failures: [(candidate: CleanupCandidate, message: String)]
+
+    var cleanedBytes: Int64 {
+        cleaned.reduce(0) { $0 + $1.sizeBytes }
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var result: ScanResult?
+    @Published var currentScreen: AppScreen = .home
+    @Published var result: ScanResult? {
+        didSet {
+            scanIndex = ScanTreeIndex(roots: result?.items ?? [])
+        }
+    }
     @Published var selectedMode: ScanMode = .defaultScope
     @Published var riskFilter: RiskFilter = .all
     @Published var isScanning = false
@@ -16,7 +108,11 @@ final class AppModel: ObservableObject {
     @Published var progress: ScanProgress?
     @Published var treemapRootPath: String?
     @Published var selectedPath: String?
-    @Published var searchText = ""
+    @Published var searchText = "" {
+        didSet {
+            scheduleSearchUpdate()
+        }
+    }
     @Published var sizeThreshold: SizeThreshold = .all
     @Published var sortOption: ItemSortOption = .size
     @Published var loadingPath: String?
@@ -28,19 +124,57 @@ final class AppModel: ObservableObject {
     @Published var duplicateResult: DuplicateResult?
     @Published var isDetectingDuplicates = false
     @Published var showDuplicates = false
+    @Published var appLeftoverResult: AppLeftoverResult?
+    @Published var appLeftoverCleanupResult: AppLeftoverCleanupResult?
+    @Published var isScanningAppLeftovers = false
+    @Published var isCleaningAppLeftovers = false
+    @Published var showAppLeftovers = false
+    @Published var showCleanPlan = true
+    @Published var showAppLeftoverCleanupConfirmation = false
+    @Published var cleanupSections: [CleanupSection] = []
+    @Published var isPreparingCleanup = false
+    @Published var isExecutingCleanup = false
+    @Published var showCleanupConfirmation = false
+    @Published var cleanupExecutionResult: CleanupExecutionResult?
+    @Published private var effectiveSearchText = ""
 
     private let scanner = DiskScanner()
     private var scanTask: Task<Void, Never>?
     private var duplicateTask: Task<Void, Never>?
+    private var loadChildrenTask: Task<Void, Never>?
+    private var searchDebounceTask: Task<Void, Never>?
+    private var appLeftoverTask: Task<Void, Never>?
+    private var appLeftoverCleanupTask: Task<Void, Never>?
+    private var cleanupPreparationTask: Task<Void, Never>?
+    private var cleanupExecutionTask: Task<Void, Never>?
+    private var scanIndex = ScanTreeIndex(roots: [])
     private var loadedPaths: Set<String> = []
 
+    var selectedCleanupCandidates: [CleanupCandidate] {
+        cleanupSections.flatMap { $0.candidates.filter(\.isSelected) }
+    }
+
+    var selectedCleanupBytes: Int64 {
+        selectedCleanupCandidates.reduce(0) { $0 + $1.sizeBytes }
+    }
+
+    var canRunCleanup: Bool {
+        !selectedCleanupCandidates.isEmpty && !isPreparingCleanup && !isExecutingCleanup
+    }
+
     func loadCachedResult() {
-        if let cached = try? ScanCacheManager.load() {
+        do {
+            guard let cached = try ScanCacheManager.load() else {
+                scanHistory = try ScanCacheManager.loadHistory()
+                return
+            }
             cachedResult = cached
             let interval = Date().timeIntervalSince(cached.summary.scannedAt)
             lastScanAge = formatRelativeTime(interval)
+            scanHistory = try ScanCacheManager.loadHistory()
+        } catch {
+            status = "缓存读取失败：\(error.localizedDescription)"
         }
-        scanHistory = (try? ScanCacheManager.loadHistory()) ?? []
     }
 
     func restoreCachedResult() {
@@ -50,27 +184,357 @@ final class AppModel: ObservableObject {
         status = "已恢复上次扫描结果"
     }
 
+    func openHome() {
+        currentScreen = .home
+    }
+
+    func openPanorama() {
+        currentScreen = .panorama
+        if result == nil && !isScanning {
+            startScan()
+        }
+    }
+
+    func openCleanup() {
+        currentScreen = .cleanup
+        prepareCleanupPlan()
+    }
+
     func startDuplicateDetection() {
         guard let result, duplicateResult == nil else { return }
         isDetectingDuplicates = true
+        showDuplicates = true
         duplicateTask = Task {
             let dupResult = await DuplicateDetector.detect(in: result.items) { progress in
                 Task { @MainActor in
                     self.status = "重复检测：\(progress.phase.rawValue) \(progress.completedFiles)/\(progress.totalFiles)"
                 }
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                isDetectingDuplicates = false
+                duplicateTask = nil
+                status = "重复检测已取消"
+                return
+            }
             duplicateResult = dupResult
             isDetectingDuplicates = false
+            duplicateTask = nil
             status = "重复检测完成：\(dupResult.totalDuplicateFiles) 个重复，浪费 \(ByteFormat.string(dupResult.totalWastedBytes))"
         }
     }
 
     func toggleDuplicates() {
+        if isDetectingDuplicates {
+            cancelDuplicateDetection()
+            return
+        }
         if duplicateResult == nil && !isDetectingDuplicates {
             startDuplicateDetection()
+            return
         }
         showDuplicates.toggle()
+    }
+
+    func rescanDuplicates() {
+        duplicateResult = nil
+        startDuplicateDetection()
+    }
+
+    func toggleAppLeftovers() {
+        if isCleaningAppLeftovers {
+            cancelAppLeftoverCleanup()
+            return
+        }
+        if isScanningAppLeftovers {
+            cancelAppLeftoverScan()
+            return
+        }
+        if appLeftoverResult == nil {
+            startAppLeftoverScan()
+            return
+        }
+        showAppLeftovers.toggle()
+    }
+
+    func rescanAppLeftovers() {
+        appLeftoverResult = nil
+        appLeftoverCleanupResult = nil
+        startAppLeftoverScan()
+    }
+
+    func startAppLeftoverScan() {
+        isScanningAppLeftovers = true
+        showAppLeftovers = true
+        appLeftoverCleanupResult = nil
+        status = "正在扫描卸载残留…"
+        appLeftoverTask = Task {
+            let scan = await AppLeftoverScanner.scan()
+            guard !Task.isCancelled else {
+                isScanningAppLeftovers = false
+                appLeftoverTask = nil
+                status = "卸载残留扫描已取消"
+                return
+            }
+            appLeftoverResult = scan
+            isScanningAppLeftovers = false
+            appLeftoverTask = nil
+            status = "卸载残留扫描完成：\(scan.items.count) 项，默认可清理 \(ByteFormat.string(scan.defaultSelectedBytes))"
+        }
+    }
+
+    var defaultAppLeftoverCleanupItems: [AppLeftoverItem] {
+        appLeftoverResult?.items.filter(\.isDefaultSelected) ?? []
+    }
+
+    var defaultAppLeftoverCleanupBytes: Int64 {
+        defaultAppLeftoverCleanupItems.reduce(0) { $0 + $1.sizeBytes }
+    }
+
+    func requestAppLeftoverCleanup() {
+        guard !defaultAppLeftoverCleanupItems.isEmpty else {
+            status = "没有默认可清理的卸载残留"
+            return
+        }
+        showAppLeftoverCleanupConfirmation = true
+    }
+
+    func cleanDefaultAppLeftovers() {
+        guard let result = appLeftoverResult else { return }
+        showAppLeftoverCleanupConfirmation = false
+        isCleaningAppLeftovers = true
+        status = "正在将卸载残留移入废纸篓…"
+        appLeftoverCleanupTask = Task {
+            let cleanup = await AppLeftoverCleaner.cleanDefaultSelected(result)
+            guard !Task.isCancelled else {
+                isCleaningAppLeftovers = false
+                appLeftoverCleanupTask = nil
+                status = "卸载残留清理已取消"
+                return
+            }
+            appLeftoverCleanupResult = cleanup
+            if var current = appLeftoverResult {
+                let cleanedPaths = Set(cleanup.cleanedItems.map(\.path))
+                current.items.removeAll { cleanedPaths.contains($0.path) }
+                appLeftoverResult = current
+            }
+            isCleaningAppLeftovers = false
+            appLeftoverCleanupTask = nil
+            status = "卸载残留已移入废纸篓：\(ByteFormat.string(cleanup.cleanedBytes))，失败 \(cleanup.failedItems.count) 项"
+        }
+    }
+
+    func cancelAppLeftoverCleanup(updateStatus: Bool = true) {
+        appLeftoverCleanupTask?.cancel()
+        appLeftoverCleanupTask = nil
+        isCleaningAppLeftovers = false
+        if updateStatus {
+            status = "正在取消卸载残留清理…"
+        }
+    }
+
+    func cancelAppLeftoverScan(updateStatus: Bool = true) {
+        appLeftoverTask?.cancel()
+        appLeftoverTask = nil
+        isScanningAppLeftovers = false
+        if updateStatus {
+            status = "正在取消卸载残留扫描…"
+        }
+    }
+
+    func cancelDuplicateDetection(updateStatus: Bool = true) {
+        duplicateTask?.cancel()
+        duplicateTask = nil
+        isDetectingDuplicates = false
+        if updateStatus {
+            status = "正在取消重复检测…"
+        }
+    }
+
+    func prepareCleanupPlan() {
+        cleanupPreparationTask?.cancel()
+        cleanupExecutionResult = nil
+        isPreparingCleanup = true
+        status = "正在检索可清理内容…"
+        cleanupPreparationTask = Task {
+            let scanResult: ScanResult
+            if let existing = result {
+                scanResult = existing
+            } else {
+                isScanning = true
+                let options = ScanOptions(mode: selectedMode, customRoots: customRoots)
+                scanResult = await scanner.scan(options: options) { [weak self] progress in
+                    Task { @MainActor in
+                        self?.progress = progress
+                        self?.status = "\(progress.phase.label)：\(progress.displayCurrentPath)"
+                    }
+                }
+                guard !Task.isCancelled else {
+                    isPreparingCleanup = false
+                    isScanning = false
+                    status = "一键清理检索已取消"
+                    return
+                }
+                applyScanResult(scanResult, resetCleanup: false)
+            }
+
+            async let duplicateScan = DuplicateDetector.detect(in: scanResult.items)
+            async let leftoverScan = AppLeftoverScanner.scan()
+            let (duplicates, leftovers) = await (duplicateScan, leftoverScan)
+
+            guard !Task.isCancelled else {
+                isPreparingCleanup = false
+                status = "一键清理检索已取消"
+                return
+            }
+
+            duplicateResult = duplicates
+            appLeftoverResult = leftovers
+            cleanupSections = makeCleanupSections(duplicates: duplicates, leftovers: leftovers)
+            isPreparingCleanup = false
+            cleanupPreparationTask = nil
+            status = "一键清理检索完成：已默认选择 \(ByteFormat.string(selectedCleanupBytes))"
+        }
+    }
+
+    func toggleCleanupCandidate(sectionID: CleanupSectionKind, candidateID: String) {
+        guard let sectionIndex = cleanupSections.firstIndex(where: { $0.kind == sectionID }),
+              let candidateIndex = cleanupSections[sectionIndex].candidates.firstIndex(where: { $0.id == candidateID }) else {
+            return
+        }
+        cleanupSections[sectionIndex].candidates[candidateIndex].isSelected.toggle()
+    }
+
+    func setCleanupSectionSelection(sectionID: CleanupSectionKind, selected: Bool) {
+        guard let sectionIndex = cleanupSections.firstIndex(where: { $0.kind == sectionID }) else { return }
+        for index in cleanupSections[sectionIndex].candidates.indices {
+            cleanupSections[sectionIndex].candidates[index].isSelected = selected
+        }
+    }
+
+    func requestOneClickCleanup() {
+        guard canRunCleanup else {
+            status = "没有已选择的清理项"
+            return
+        }
+        showCleanupConfirmation = true
+    }
+
+    func executeSelectedCleanup() {
+        let selected = selectedCleanupCandidates
+        guard !selected.isEmpty else { return }
+        showCleanupConfirmation = false
+        isExecutingCleanup = true
+        status = "正在将已选项目移入废纸篓…"
+        cleanupExecutionTask = Task {
+            var cleaned: [CleanupCandidate] = []
+            var failures: [(candidate: CleanupCandidate, message: String)] = []
+            var seen = Set<String>()
+
+            for candidate in selected where seen.insert(candidate.path).inserted {
+                if Task.isCancelled { break }
+                do {
+                    _ = try FileManager.default.trashItem(at: URL(fileURLWithPath: candidate.path), resultingItemURL: nil)
+                    cleaned.append(candidate)
+                } catch {
+                    failures.append((candidate, error.localizedDescription))
+                }
+            }
+
+            guard !Task.isCancelled else {
+                isExecutingCleanup = false
+                cleanupExecutionTask = nil
+                status = "一键清理已取消"
+                return
+            }
+
+            cleanupExecutionResult = CleanupExecutionResult(cleaned: cleaned, failures: failures)
+            removeCleanedCandidates(paths: Set(cleaned.map(\.path)))
+            isExecutingCleanup = false
+            cleanupExecutionTask = nil
+            status = "一键清理完成：已移入废纸篓 \(ByteFormat.string(cleanupExecutionResult?.cleanedBytes ?? 0))，失败 \(failures.count) 项"
+        }
+    }
+
+    private func removeCleanedCandidates(paths: Set<String>) {
+        for sectionIndex in cleanupSections.indices {
+            cleanupSections[sectionIndex].candidates.removeAll { paths.contains($0.path) }
+        }
+    }
+
+    private func makeCleanupSections(
+        duplicates: DuplicateResult,
+        leftovers: AppLeftoverResult
+    ) -> [CleanupSection] {
+        [
+            CleanupSection(kind: .safe, candidates: safeCleanupCandidates()),
+            CleanupSection(kind: .leftovers, candidates: leftoverCleanupCandidates(leftovers)),
+            CleanupSection(kind: .duplicates, candidates: duplicateCleanupCandidates(duplicates)),
+            CleanupSection(kind: .largeFiles, candidates: largeFileCleanupCandidates()),
+        ]
+    }
+
+    private func safeCleanupCandidates() -> [CleanupCandidate] {
+        scanIndex.flatItems
+            .filter { $0.risk == .safeClean && $0.kind != .inaccessible && $0.sizeBytes > 0 }
+            .sorted { $0.sizeBytes > $1.sizeBytes }
+            .prefix(80)
+            .map { item in
+                CleanupCandidate(
+                    title: item.name,
+                    path: item.path,
+                    sizeBytes: item.sizeBytes,
+                    detail: item.recommendedAction,
+                    risk: item.risk,
+                    isSelected: CleanupSectionKind.safe.defaultSelected
+                )
+            }
+    }
+
+    private func leftoverCleanupCandidates(_ leftovers: AppLeftoverResult) -> [CleanupCandidate] {
+        leftovers.items
+            .filter(\.isDefaultSelected)
+            .map { item in
+                CleanupCandidate(
+                    title: "\(item.appName) · \(item.kind.label)",
+                    path: item.path,
+                    sizeBytes: item.sizeBytes,
+                    detail: item.suggestedAction,
+                    risk: item.risk,
+                    isSelected: CleanupSectionKind.leftovers.defaultSelected
+                )
+            }
+    }
+
+    private func duplicateCleanupCandidates(_ duplicates: DuplicateResult) -> [CleanupCandidate] {
+        duplicates.groups.flatMap { group in
+            group.files.dropFirst().map { file in
+                CleanupCandidate(
+                    title: file.name,
+                    path: file.path,
+                    sizeBytes: file.sizeBytes,
+                    detail: "重复文件，默认保留每组第一个文件",
+                    risk: file.risk,
+                    isSelected: CleanupSectionKind.duplicates.defaultSelected
+                )
+            }
+        }
+    }
+
+    private func largeFileCleanupCandidates() -> [CleanupCandidate] {
+        scanIndex.flatItems
+            .filter { $0.kind == .file && $0.sizeBytes >= SizeThreshold.over1GB.minimumBytes && $0.risk != .system }
+            .sorted { $0.sizeBytes > $1.sizeBytes }
+            .prefix(80)
+            .map { item in
+                CleanupCandidate(
+                    title: item.name,
+                    path: item.path,
+                    sizeBytes: item.sizeBytes,
+                    detail: "大文件，需确认用途后再清理",
+                    risk: item.risk,
+                    isSelected: CleanupSectionKind.largeFiles.defaultSelected
+                )
+            }
     }
 
     private func formatRelativeTime(_ interval: TimeInterval) -> String {
@@ -80,26 +544,42 @@ final class AppModel: ObservableObject {
         return "\(Int(interval / 86400)) 天前"
     }
 
+    private func scheduleSearchUpdate() {
+        searchDebounceTask?.cancel()
+        let pendingText = searchText
+        if pendingText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            effectiveSearchText = pendingText
+            return
+        }
+        searchDebounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                self?.effectiveSearchText = pendingText
+            }
+        }
+    }
+
     var filteredItems: [ScanItem] {
-        guard let result else { return [] }
+        guard result != nil else { return [] }
         return ScanItemFilter.filter(
-            items: result.items.flatMap { RecommendationEngine.flatten($0) },
+            items: scanIndex.flatItems,
             riskFilter: riskFilter,
             selectedPath: selectedPath,
-            query: searchText,
+            query: effectiveSearchText,
             sizeThreshold: sizeThreshold,
             sort: sortOption
         )
     }
 
     var visibleTreemapItems: [ScanItem] {
-        guard let result else { return [] }
-        let scopedItems = ScanTree.treemapItems(roots: result.items, rootPath: treemapRootPath)
+        guard result != nil else { return [] }
+        let scopedItems = scanIndex.treemapItems(rootPath: treemapRootPath)
         return ScanItemFilter.filter(
             items: scopedItems,
             riskFilter: riskFilter,
             selectedPath: nil,
-            query: searchText,
+            query: effectiveSearchText,
             sizeThreshold: sizeThreshold,
             sort: .size
         )
@@ -113,8 +593,8 @@ final class AppModel: ObservableObject {
     }
 
     var breadcrumbItems: [(label: String, path: String?)] {
-        guard let result else { return [("扫描结果", nil)] }
-        return ScanTree.breadcrumbs(rootPath: treemapRootPath, roots: result.items)
+        guard result != nil else { return [("扫描结果", nil)] }
+        return scanIndex.breadcrumbs(rootPath: treemapRootPath)
     }
 
     var selectedItem: ScanItem? {
@@ -129,9 +609,17 @@ final class AppModel: ObservableObject {
 
     func startScan() {
         scanTask?.cancel()
+        loadChildrenTask?.cancel()
+        loadChildrenTask = nil
+        cleanupPreparationTask?.cancel()
+        cleanupExecutionTask?.cancel()
+        cancelDuplicateDetection(updateStatus: false)
+        cancelAppLeftoverScan(updateStatus: false)
+        cancelAppLeftoverCleanup(updateStatus: false)
         isScanning = true
         status = "正在扫描 \(selectedMode.label)…"
         progress = ScanProgress(
+            phase: .preparing,
             currentPath: "",
             scannedDirectories: 0,
             scannedFiles: 0,
@@ -147,39 +635,63 @@ final class AppModel: ObservableObject {
             let scanResult = await scanner.scan(options: options) { [weak self] progress in
                 Task { @MainActor in
                     self?.progress = progress
-                    self?.status = "正在扫描：\(progress.displayCurrentPath)"
+                    self?.status = "\(progress.phase.label)：\(progress.displayCurrentPath)"
                 }
             }
-            result = scanResult
-            loadedPaths = Set(scanResult.items.map(\.path))
-            treemapRootPath = nil
-            selectedPath = nil
-            isScanning = false
-            progress = nil
-            duplicateResult = nil
-            showDuplicates = false
-            isDetectingDuplicates = false
-            duplicateTask?.cancel()
+            applyScanResult(scanResult, resetCleanup: true)
+        }
+    }
 
-            if let cached = self.cachedResult {
-                self.delta = ScanCacheManager.computeDelta(old: cached, new: scanResult)
-            }
-            try? ScanCacheManager.save(scanResult)
-            self.cachedResult = scanResult
-            self.lastScanAge = "刚刚"
-            try? ScanCacheManager.appendToHistory(scanResult.summary)
-            self.scanHistory = (try? ScanCacheManager.loadHistory()) ?? []
+    private func applyScanResult(_ scanResult: ScanResult, resetCleanup: Bool) {
+        result = scanResult
+        loadedPaths = Set(scanResult.items.map(\.path))
+        treemapRootPath = nil
+        selectedPath = nil
+        isScanning = false
+        progress = nil
+        duplicateResult = nil
+        showDuplicates = false
+        isDetectingDuplicates = false
+        if resetCleanup {
+            appLeftoverResult = nil
+            appLeftoverCleanupResult = nil
+            cleanupSections = []
+            cleanupExecutionResult = nil
+        }
+        showAppLeftovers = false
+        isScanningAppLeftovers = false
+        isCleaningAppLeftovers = false
 
-            if scanResult.summary.isCancelled {
-                status = "扫描已取消：保留部分结果 \(ByteFormat.string(scanResult.summary.scannedBytes))"
-            } else {
-                status = "扫描完成：\(ByteFormat.string(scanResult.summary.scannedBytes))，无法读取 \(scanResult.summary.inaccessibleCount) 项"
-            }
+        if let cached = self.cachedResult {
+            self.delta = ScanCacheManager.computeDelta(old: cached, new: scanResult)
+        }
+        var warnings: [String] = []
+        do {
+            try ScanCacheManager.save(scanResult)
+        } catch {
+            warnings.append("缓存保存失败：\(error.localizedDescription)")
+        }
+        self.cachedResult = scanResult
+        self.lastScanAge = "刚刚"
+        do {
+            try ScanCacheManager.appendToHistory(scanResult.summary)
+            self.scanHistory = try ScanCacheManager.loadHistory()
+        } catch {
+            warnings.append("历史保存失败：\(error.localizedDescription)")
+        }
+
+        if scanResult.summary.isCancelled {
+            status = "扫描已取消：保留部分结果 \(ByteFormat.string(scanResult.summary.scannedBytes))\(warningSuffix(warnings))"
+        } else {
+            status = "扫描完成：\(ByteFormat.string(scanResult.summary.scannedBytes))，无法读取 \(scanResult.summary.inaccessibleCount) 项\(warningSuffix(warnings))"
         }
     }
 
     func cancelScan() {
         scanTask?.cancel()
+        loadChildrenTask?.cancel()
+        loadChildrenTask = nil
+        loadingPath = nil
         isScanning = false
         progress = progress.map {
             var copy = $0
@@ -268,8 +780,8 @@ final class AppModel: ObservableObject {
     }
 
     func findItem(path: String) -> ScanItem? {
-        guard let result else { return nil }
-        return ScanTree.find(path: path, in: result.items)
+        guard result != nil else { return nil }
+        return scanIndex.find(path: path)
     }
 
     func openFullDiskAccessSettings() {
@@ -331,11 +843,19 @@ final class AppModel: ObservableObject {
 
     private func loadChildrenAndEnter(_ item: ScanItem) {
         guard loadingPath != item.path else { return }
+        loadChildrenTask?.cancel()
         loadingPath = item.path
-        status = "正在加载下一层：\(item.path)"
+        status = "\(ScanPhase.expanding.label)：\(item.path)"
         let parentPath = item.parentPath
-        Task {
+        loadChildrenTask = Task {
             let level = await scanner.scanDirectoryLevel(url: URL(fileURLWithPath: item.path), parentPath: parentPath)
+            guard !Task.isCancelled else {
+                if loadingPath == item.path {
+                    loadingPath = nil
+                    status = "已取消加载：\(item.name)"
+                }
+                return
+            }
             guard var current = result else {
                 loadingPath = nil
                 return
@@ -355,6 +875,7 @@ final class AppModel: ObservableObject {
             }
             selectedPath = item.path
             loadingPath = nil
+            loadChildrenTask = nil
         }
     }
 
@@ -365,6 +886,10 @@ final class AppModel: ObservableObject {
         var copy = item
         copy.children = item.children.map { replaceItem(path: path, replacement: replacement, in: $0) }
         return copy
+    }
+
+    private func warningSuffix(_ warnings: [String]) -> String {
+        warnings.isEmpty ? "" : "；" + warnings.joined(separator: "；")
     }
 }
 

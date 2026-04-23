@@ -43,7 +43,8 @@ public enum ReportExporter {
         lines.append("| 路径 | 大小 | 分类 | 风险 | 建议 |")
         lines.append("| --- | ---: | --- | --- | --- |")
         for item in RecommendationEngine.flattenedTopItems(result.items, limit: 25) {
-            lines.append("| `\(item.path)` | \(ByteFormat.string(item.sizeBytes)) | \(item.category.label) | \(item.risk.label) | \(item.recommendedAction) |")
+            let action = item.command.map { "\(item.recommendedAction)<br>`\($0)`" } ?? item.recommendedAction
+            lines.append("| `\(item.path)` | \(ByteFormat.string(item.sizeBytes)) | \(item.category.label) | \(item.risk.label) | \(action) |")
         }
         lines.append("")
         lines.append("## Top 大目录")

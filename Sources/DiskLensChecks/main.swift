@@ -15,6 +15,29 @@ func expect(_ condition: @autoclosure () -> Bool, _ message: String) -> Bool {
 
 var failures: [String] = []
 
+final class ProgressSink: @unchecked Sendable {
+    private let lock = NSLock()
+    private var snapshots: [ScanProgress] = []
+
+    func append(_ progress: ScanProgress) {
+        lock.lock()
+        snapshots.append(progress)
+        lock.unlock()
+    }
+
+    var last: ScanProgress? {
+        lock.lock()
+        defer { lock.unlock() }
+        return snapshots.last
+    }
+
+    func containsPhase(_ phase: ScanPhase) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return snapshots.contains { $0.phase == phase }
+    }
+}
+
 func makeItem(
     name: String,
     path: String? = nil,
@@ -56,7 +79,8 @@ let npm = ClassificationRules.classify(
 )
 expect(npm.category == .cache, "npm cache is classified as cache")
 expect(npm.risk == .safeClean, "npm cache is safe-clean")
-expect(npm.recommendedAction.contains("npm cache clean"), "npm cache exposes safe command")
+expect(npm.recommendedAction.contains("npm"), "npm cache exposes npm-specific action text")
+expect(npm.command == "npm cache clean --force", "npm cache exposes structured safe command")
 
 let container = ClassificationRules.classify(
     path: "/Users/warrn/Library/Containers/com.tencent.xinWeChat/Data",
@@ -96,6 +120,7 @@ let progress = ScanProgress(
     isCancelled: false
 )
 expect(progress.elapsedSeconds == 5, "scan progress exposes elapsed time")
+expect(progress.phase == .preparing, "scan progress defaults to preparing phase")
 expect(progress.inaccessiblePaths.first == "/Users/warrn/Library/Mail", "scan progress records inaccessible paths")
 
 let filtered = ScanItemFilter.filter(
@@ -113,6 +138,11 @@ expect(filtered.count == 1 && filtered[0].name == "uv", "search, risk and size t
 
 let child = makeItem(name: "unet", path: "/Users/warrn/ComfyUI/models/unet", bytes: 100, parentPath: "/Users/warrn/ComfyUI")
 let root = makeItem(name: "ComfyUI", path: "/Users/warrn/ComfyUI", bytes: 200, children: [child])
+let index = ScanTreeIndex(roots: [root])
+expect(index.flatItems.map(\.path) == [root.path, child.path], "scan tree index preserves flattened pre-order")
+expect(index.find(path: child.path)?.name == "unet", "scan tree index finds items by path")
+expect(index.treemapItems(rootPath: root.path).first?.name == "unet", "scan tree index returns children for treemap root")
+expect(index.breadcrumbs(rootPath: child.path).map(\.label).contains("unet"), "scan tree index builds breadcrumbs")
 expect(ScanTree.treemapItems(roots: [root], rootPath: "/Users/warrn/ComfyUI").first?.name == "unet", "treemap navigation returns child items for drilled root")
 expect(ScanTree.breadcrumbs(rootPath: "/Users/warrn/ComfyUI/models/unet", roots: [root]).map(\.label).contains("unet"), "treemap breadcrumbs include drilled item")
 
@@ -141,9 +171,24 @@ expect(related.count == 1 && related[0].title == "ComfyUI", "recommendations fil
 
 let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent("DiskLensChecks-\(UUID().uuidString)")
 try FileManager.default.createDirectory(at: tempRoot.appendingPathComponent("A"), withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: tempRoot.appendingPathComponent("B"), withIntermediateDirectories: true)
 try Data(repeating: 1, count: 4096).write(to: tempRoot.appendingPathComponent("A/file.bin"))
-let level = await DiskScanner().scanDirectoryLevel(url: tempRoot)
+try Data(repeating: 2, count: 2048).write(to: tempRoot.appendingPathComponent("B/file.bin"))
+let level = await DiskScanner().scanDirectoryLevel(url: tempRoot, maxChildrenPerNode: 1)
 expect(level.item.children.contains { $0.name == "A" }, "directory level scan loads immediate children")
+expect(level.item.children.count == 1, "directory level scan respects max child cap")
+expect(level.scannedDirectories >= 3, "directory level scan reports measured directory entries")
+
+let progressSink = ProgressSink()
+let cappedScan = await DiskScanner().scan(
+    options: ScanOptions(mode: .custom, customRoots: [tempRoot], maxChildrenPerNode: 1)
+) { progress in
+    progressSink.append(progress)
+}
+expect(cappedScan.items.first?.children.count == 1, "scan options apply max child cap to root scans")
+expect(progressSink.last?.scannedDirectories ?? 0 >= 3, "scan progress reports measured directory entries")
+expect(progressSink.containsPhase(.estimating), "scan progress reports estimating phase")
+expect(progressSink.last?.phase == .finalizing, "scan progress reports finalizing phase before completion")
 try? FileManager.default.removeItem(at: tempRoot)
 
 let result = ScanResult(
@@ -173,6 +218,7 @@ let result = ScanResult(
             risk: .safeClean,
             reclaimableBytes: 36,
             recommendedAction: "uv cache clean",
+            command: "uv cache clean",
             detail: "cache",
             isReadable: true,
             children: []
@@ -190,6 +236,109 @@ expect(markdown.contains("DiskLens 磁盘扫描报告"), "Markdown export contai
 expect(markdown.contains("/Users/warrn/.cache/uv"), "Markdown export contains item path")
 expect(markdown.contains("扫描耗时"), "Markdown export contains scan duration")
 expect(markdown.contains("不可读路径摘要"), "Markdown export contains inaccessible path summary")
+
+let duplicateRoot = FileManager.default.temporaryDirectory.appendingPathComponent("DiskLensDuplicateChecks-\(UUID().uuidString)")
+try FileManager.default.createDirectory(at: duplicateRoot, withIntermediateDirectories: true)
+let duplicateData = Data(repeating: 7, count: 1_100_000)
+let firstDuplicate = duplicateRoot.appendingPathComponent("model-a.bin")
+let renamedDuplicate = duplicateRoot.appendingPathComponent("renamed-model.bin")
+let sameSampleDifferentContent = duplicateRoot.appendingPathComponent("same-sample-different-content.bin")
+try duplicateData.write(to: firstDuplicate)
+try duplicateData.write(to: renamedDuplicate)
+var nearDuplicateData = Data(repeating: 7, count: 1_000_000)
+nearDuplicateData.append(Data(repeating: 8, count: 100_000))
+try nearDuplicateData.write(to: sameSampleDifferentContent)
+let duplicateItems = [
+    ScanItem(
+        path: firstDuplicate.path,
+        name: firstDuplicate.lastPathComponent,
+        sizeBytes: Int64(duplicateData.count),
+        depth: 0,
+        parentPath: nil,
+        kind: .file,
+        category: .aiModel,
+        risk: .review,
+        reclaimableBytes: 0,
+        recommendedAction: "review",
+        detail: "",
+        isReadable: true,
+        children: []
+    ),
+    ScanItem(
+        path: renamedDuplicate.path,
+        name: renamedDuplicate.lastPathComponent,
+        sizeBytes: Int64(duplicateData.count),
+        depth: 0,
+        parentPath: nil,
+        kind: .file,
+        category: .aiModel,
+        risk: .review,
+        reclaimableBytes: 0,
+        recommendedAction: "review",
+        detail: "",
+        isReadable: true,
+        children: []
+    ),
+    ScanItem(
+        path: sameSampleDifferentContent.path,
+        name: sameSampleDifferentContent.lastPathComponent,
+        sizeBytes: Int64(duplicateData.count),
+        depth: 0,
+        parentPath: nil,
+        kind: .file,
+        category: .aiModel,
+        risk: .review,
+        reclaimableBytes: 0,
+        recommendedAction: "review",
+        detail: "",
+        isReadable: true,
+        children: []
+    ),
+]
+let duplicateResult = await DuplicateDetector.detect(in: duplicateItems)
+expect(duplicateResult.groups.count == 1, "duplicate detector matches same-content files with different names")
+expect(duplicateResult.totalDuplicateFiles == 2, "duplicate detector counts duplicate files")
+expect(duplicateResult.groups.first?.files.contains { $0.name == sameSampleDifferentContent.lastPathComponent } == false, "duplicate detector uses full hash after quick hash")
+try? FileManager.default.removeItem(at: duplicateRoot)
+
+func writeAppBundle(root: URL, name: String, bundleID: String) throws {
+    let appRoot = root.appendingPathComponent("\(name).app/Contents", isDirectory: true)
+    try FileManager.default.createDirectory(at: appRoot, withIntermediateDirectories: true)
+    let plist: [String: String] = [
+        "CFBundleIdentifier": bundleID,
+        "CFBundleName": name,
+        "CFBundleExecutable": name,
+    ]
+    let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+    try data.write(to: appRoot.appendingPathComponent("Info.plist"))
+}
+
+let appLeftoverRoot = FileManager.default.temporaryDirectory.appendingPathComponent("DiskLensLeftoverChecks-\(UUID().uuidString)")
+let installedRoot = appLeftoverRoot.appendingPathComponent("Applications", isDirectory: true)
+let libraryRoot = appLeftoverRoot.appendingPathComponent("Library", isDirectory: true)
+try FileManager.default.createDirectory(at: installedRoot, withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: libraryRoot.appendingPathComponent("Preferences", isDirectory: true), withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: libraryRoot.appendingPathComponent("Caches/com.example.Gone", isDirectory: true), withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: libraryRoot.appendingPathComponent("Application Support/Gone", isDirectory: true), withIntermediateDirectories: true)
+try FileManager.default.createDirectory(at: libraryRoot.appendingPathComponent("Containers/com.example.Installed", isDirectory: true), withIntermediateDirectories: true)
+try Data(repeating: 1, count: 128).write(to: libraryRoot.appendingPathComponent("Preferences/com.example.Gone.plist"))
+try Data(repeating: 2, count: 128).write(to: libraryRoot.appendingPathComponent("Preferences/com.example.Installed.plist"))
+try Data(repeating: 3, count: 1024).write(to: libraryRoot.appendingPathComponent("Caches/com.example.Gone/blob"))
+try Data(repeating: 4, count: 1024).write(to: libraryRoot.appendingPathComponent("Application Support/Gone/data"))
+try writeAppBundle(root: installedRoot, name: "Installed", bundleID: "com.example.Installed")
+
+let leftovers = await AppLeftoverScanner.scan(installedAppRoots: [installedRoot], libraryRoots: [libraryRoot])
+expect(leftovers.items.contains { $0.bundleIdentifier == "com.example.Gone" && $0.kind == .preference }, "app leftover scanner finds orphan preferences")
+expect(leftovers.items.contains { $0.bundleIdentifier == "com.example.Gone" && $0.kind == .cache }, "app leftover scanner finds orphan caches")
+expect(leftovers.items.contains { $0.bundleIdentifier == "com.example.Gone" && $0.kind == .appSupport }, "app leftover scanner links app support by orphan app name")
+expect(leftovers.items.contains { $0.bundleIdentifier == "com.example.Installed" } == false, "app leftover scanner ignores installed app leftovers")
+expect(leftovers.defaultSelectedBytes > 0, "app leftover scanner estimates default selected bytes")
+let cleanupResult = await AppLeftoverCleaner.cleanDefaultSelected(leftovers)
+expect(cleanupResult.failedItems.isEmpty, "app leftover cleaner moves safe leftovers without failures")
+expect(cleanupResult.cleanedItems.allSatisfy(\.isDefaultSelected), "app leftover cleaner only cleans default selected items")
+expect(FileManager.default.fileExists(atPath: libraryRoot.appendingPathComponent("Preferences/com.example.Gone.plist").path) == false, "app leftover cleaner trashes orphan preference")
+expect(FileManager.default.fileExists(atPath: libraryRoot.appendingPathComponent("Application Support/Gone").path), "app leftover cleaner leaves review app support in place")
+try? FileManager.default.removeItem(at: appLeftoverRoot)
 
 if failures.isEmpty {
     print("All DiskLens checks passed.")

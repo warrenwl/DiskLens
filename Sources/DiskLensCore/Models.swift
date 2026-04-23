@@ -81,7 +81,24 @@ public enum ItemKind: String, Codable, Sendable {
     case inaccessible
 }
 
+public enum ScanPhase: String, Codable, Equatable, Sendable {
+    case preparing
+    case estimating
+    case expanding
+    case finalizing
+
+    public var label: String {
+        switch self {
+        case .preparing: return "准备中"
+        case .estimating: return "估算中"
+        case .expanding: return "展开中"
+        case .finalizing: return "汇总中"
+        }
+    }
+}
+
 public struct ScanProgress: Codable, Equatable, Sendable {
+    public var phase: ScanPhase
     public var currentPath: String
     public var scannedDirectories: Int
     public var scannedFiles: Int
@@ -92,6 +109,7 @@ public struct ScanProgress: Codable, Equatable, Sendable {
     public var isCancelled: Bool
 
     public init(
+        phase: ScanPhase = .preparing,
         currentPath: String,
         scannedDirectories: Int,
         scannedFiles: Int,
@@ -101,6 +119,7 @@ public struct ScanProgress: Codable, Equatable, Sendable {
         updatedAt: Date,
         isCancelled: Bool
     ) {
+        self.phase = phase
         self.currentPath = currentPath
         self.scannedDirectories = scannedDirectories
         self.scannedFiles = scannedFiles
@@ -178,6 +197,7 @@ public struct ScanItem: Codable, Identifiable, Equatable, Sendable {
     public var risk: RiskLevel
     public var reclaimableBytes: Int64
     public var recommendedAction: String
+    public var command: String?
     public var detail: String
     public var isReadable: Bool
     public var children: [ScanItem]
@@ -193,6 +213,7 @@ public struct ScanItem: Codable, Identifiable, Equatable, Sendable {
         risk: RiskLevel,
         reclaimableBytes: Int64,
         recommendedAction: String,
+        command: String? = nil,
         detail: String,
         isReadable: Bool,
         children: [ScanItem]
@@ -207,9 +228,45 @@ public struct ScanItem: Codable, Identifiable, Equatable, Sendable {
         self.risk = risk
         self.reclaimableBytes = reclaimableBytes
         self.recommendedAction = recommendedAction
+        self.command = command
         self.detail = detail
         self.isReadable = isReadable
         self.children = children
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case name
+        case sizeBytes
+        case depth
+        case parentPath
+        case kind
+        case category
+        case risk
+        case reclaimableBytes
+        case recommendedAction
+        case command
+        case detail
+        case isReadable
+        case children
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        name = try container.decode(String.self, forKey: .name)
+        sizeBytes = try container.decode(Int64.self, forKey: .sizeBytes)
+        depth = try container.decode(Int.self, forKey: .depth)
+        parentPath = try container.decodeIfPresent(String.self, forKey: .parentPath)
+        kind = try container.decode(ItemKind.self, forKey: .kind)
+        category = try container.decode(ItemCategory.self, forKey: .category)
+        risk = try container.decode(RiskLevel.self, forKey: .risk)
+        reclaimableBytes = try container.decode(Int64.self, forKey: .reclaimableBytes)
+        recommendedAction = try container.decode(String.self, forKey: .recommendedAction)
+        command = try container.decodeIfPresent(String.self, forKey: .command)
+        detail = try container.decode(String.self, forKey: .detail)
+        isReadable = try container.decode(Bool.self, forKey: .isReadable)
+        children = try container.decode([ScanItem].self, forKey: .children)
     }
 }
 
@@ -359,6 +416,7 @@ public enum ScanItemFilter {
                     item.category.label.lowercased().contains(normalizedQuery) ||
                     item.risk.label.lowercased().contains(normalizedQuery) ||
                     item.recommendedAction.lowercased().contains(normalizedQuery) ||
+                    item.command?.lowercased().contains(normalizedQuery) == true ||
                     item.detail.lowercased().contains(normalizedQuery)
             }
             .sorted { lhs, rhs in

@@ -1,3 +1,4 @@
+import AppKit
 import DiskLensCore
 import SwiftUI
 
@@ -6,27 +7,155 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            toolbar
+            switch model.currentScreen {
+            case .home:
+                homeScreen
+            case .panorama:
+                panoramaScreen
+            case .cleanup:
+                cleanupScreen
+            }
+            Divider()
+            statusBar
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+        .task {
+            model.loadCachedResult()
+        }
+        .confirmationDialog(
+            "将默认安全的卸载残留移入废纸篓？",
+            isPresented: $model.showAppLeftoverCleanupConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("移入废纸篓", role: .destructive) {
+                model.cleanDefaultAppLeftovers()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将处理 \(model.defaultAppLeftoverCleanupItems.count) 项，约 \(ByteFormat.string(model.defaultAppLeftoverCleanupBytes))。仅处理可安全清理项，不会永久删除。")
+        }
+        .confirmationDialog(
+            "将已选项目移入废纸篓？",
+            isPresented: $model.showCleanupConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("移入废纸篓", role: .destructive) {
+                model.executeSelectedCleanup()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将处理 \(model.selectedCleanupCandidates.count) 项，约 \(ByteFormat.string(model.selectedCleanupBytes))。DiskLens 只会移动到废纸篓，不会永久删除。")
+        }
+    }
+
+    private var homeScreen: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            VStack(spacing: 0) {
+                HStack {
+                    HStack(spacing: 10) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.primary.opacity(0.08))
+                                .frame(width: 34, height: 34)
+                            Image(systemName: "waveform.path.ecg")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.green)
+                        }
+                        Text("DiskLens")
+                            .font(.title2.weight(.bold))
+                    }
+                    Spacer()
+                    if let age = model.lastScanAge, model.cachedResult != nil {
+                        Text("上次扫描 \(age)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: 1160)
+                .padding(.horizontal, 34)
+                .padding(.top, 30)
+
+                Spacer(minLength: 18)
+
+                HStack(alignment: .center, spacing: 34) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        HomeSignalMark()
+                            .padding(.bottom, 34)
+                        Text("看清磁盘")
+                            .font(.system(size: 52, weight: .bold))
+                            .tracking(0)
+                        Text("谨慎清理")
+                            .font(.system(size: 52, weight: .bold))
+                            .tracking(0)
+                        Text("用 Treemap 定位空间大户，用复核式清理把安全项目统一移入废纸篓。")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.top, 18)
+                            .frame(maxWidth: 620, alignment: .leading)
+                        HStack(spacing: 10) {
+                            HomeTrustPill(text: "只移入废纸篓", systemImage: "trash")
+                            HomeTrustPill(text: "默认保护用户数据", systemImage: "lock.shield")
+                            HomeTrustPill(text: "可视化定位", systemImage: "square.grid.3x3")
+                        }
+                        .padding(.top, 26)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(spacing: 14) {
+                        HomeStatusStrip(
+                            title: model.cachedResult == nil ? "未加载历史扫描" : "已有历史扫描",
+                            subtitle: model.lastScanAge.map { "上次扫描 \($0)" } ?? "进入磁盘全景开始第一次扫描"
+                        )
+                        HomeActionButton(
+                            title: "磁盘全景",
+                            subtitle: "用矩形面积看清每一块空间占用",
+                            systemImage: "square.grid.3x3.fill",
+                            tint: .blue,
+                            action: model.openPanorama
+                        )
+                        HomeActionButton(
+                            title: "一键清理",
+                            subtitle: "扫描候选项，勾选后统一移入废纸篓",
+                            systemImage: "trash",
+                            tint: .green,
+                            action: model.openCleanup
+                        )
+                    }
+                    .frame(width: 430)
+                }
+                .frame(maxWidth: 1160)
+                .padding(.horizontal, 34)
+
+                Spacer(minLength: 28)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var panoramaScreen: some View {
+        VStack(spacing: 0) {
+            panoramaToolbar
             Divider()
             if let result = model.result {
                 dashboard(result)
             } else {
                 emptyState
             }
-            Divider()
-            statusBar
-        }
-        .task {
-            model.loadCachedResult()
-            if model.result == nil && !model.isScanning {
-                model.startScan()
-            }
         }
     }
 
-    private var toolbar: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private var panoramaToolbar: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
+                Button {
+                    model.openHome()
+                } label: {
+                    Label("首页", systemImage: "chevron.left")
+                }
+
                 Picker("扫描", selection: $model.selectedMode) {
                     ForEach(ScanMode.allCases) { mode in
                         Text(mode.label).tag(mode)
@@ -65,13 +194,6 @@ struct ContentView: View {
                     Button("PNG 全景图") { model.exportPNG() }
                 } label: {
                     Label("导出", systemImage: "square.and.arrow.down")
-                }
-                .disabled(model.result == nil)
-
-                Button {
-                    model.toggleDuplicates()
-                } label: {
-                    Label("重复文件", systemImage: "doc.on.doc.fill")
                 }
                 .disabled(model.result == nil)
 
@@ -118,8 +240,107 @@ struct ContentView: View {
                 Spacer()
             }
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.55))
+    }
+
+    private var cleanupScreen: some View {
+        VStack(spacing: 0) {
+            cleanupToolbar
+            Divider()
+            if model.isPreparingCleanup {
+                cleanupPreparingView
+            } else {
+                cleanupSectionsView
+            }
+        }
+    }
+
+    private var cleanupToolbar: some View {
+        HStack(spacing: 12) {
+            Button {
+                model.openHome()
+            } label: {
+                Label("首页", systemImage: "chevron.left")
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("一键清理")
+                    .font(.headline)
+                Text("已选 \(model.selectedCleanupCandidates.count) 项，约 \(ByteFormat.string(model.selectedCleanupBytes))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                model.prepareCleanupPlan()
+            } label: {
+                Label("重新检索", systemImage: "arrow.clockwise")
+            }
+            .disabled(model.isPreparingCleanup || model.isExecutingCleanup)
+
+            Button {
+                model.requestOneClickCleanup()
+            } label: {
+                Label(model.isExecutingCleanup ? "清理中" : "一键清理", systemImage: model.isExecutingCleanup ? "hourglass" : "trash")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!model.canRunCleanup)
+        }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+    }
+
+    private var cleanupPreparingView: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+            Text("正在检索可清理内容…")
+                .font(.title3.weight(.semibold))
+            Text(model.status)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var cleanupSectionsView: some View {
+        ScrollView {
+            LazyVStack(spacing: 14) {
+                if let cleanupResult = model.cleanupExecutionResult {
+                    CleanupResultBanner(result: cleanupResult)
+                }
+                ForEach(model.cleanupSections) { section in
+                    CleanupSectionView(
+                        section: section,
+                        toggleSection: {
+                            model.setCleanupSectionSelection(sectionID: section.kind, selected: !section.allSelected)
+                        },
+                        toggleCandidate: { candidate in
+                            model.toggleCleanupCandidate(sectionID: section.kind, candidateID: candidate.id)
+                        },
+                        revealInFinder: model.revealInFinder,
+                        copyPath: model.copyPath
+                    )
+                }
+                if model.cleanupSections.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle")
+                            .font(.largeTitle)
+                            .foregroundStyle(.green)
+                        Text("暂无清理候选")
+                            .font(.title3.weight(.semibold))
+                        Button("重新检索") {
+                            model.prepareCleanupPlan()
+                        }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 360)
+                }
+            }
+            .padding(18)
+        }
     }
 
     private func dashboard(_ result: ScanResult) -> some View {
@@ -144,23 +365,10 @@ struct ContentView: View {
                     onBreadcrumb: model.jumpToBreadcrumb
                 )
                     .frame(minWidth: 620)
-                sidePanel()
+                panoramaInspector()
                     .frame(minWidth: 390, idealWidth: 460)
             }
             Divider()
-            if model.showDuplicates, let dupResult = model.duplicateResult {
-                DuplicatePanel(result: dupResult)
-                Divider()
-            } else if model.isDetectingDuplicates {
-                HStack {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("正在检测重复文件…")
-                        .foregroundStyle(.secondary)
-                }
-                .padding(12)
-                Divider()
-            }
             ItemsTable(
                 items: model.filteredItems,
                 copyPath: model.copyPath,
@@ -171,10 +379,10 @@ struct ContentView: View {
         }
     }
 
-    private func sidePanel() -> some View {
+    private func panoramaInspector() -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text("清理建议")
+                Text("选中详情")
                     .font(.title3.weight(.semibold))
                 Spacer()
                 if model.selectedPath != nil {
@@ -214,32 +422,39 @@ struct ContentView: View {
                             .disabled(model.loadingPath == selected.path)
                         }
                     }
+                    HStack(spacing: 8) {
+                        PanoramaInspectorStat(title: "分类", value: selected.category.label)
+                        PanoramaInspectorStat(title: "类型", value: selected.kind.rawValue)
+                    }
                 }
                 .padding(12)
-                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if model.visibleRecommendations.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("当前选中范围没有专门建议")
-                                .font(.headline)
-                            Text("可以返回上层，或查看底部表格里的路径级建议。")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.quaternary.opacity(0.35), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                    ForEach(model.visibleRecommendations) { recommendation in
-                        RecommendationRow(recommendation: recommendation) { command in
-                            model.copy(command)
-                        }
-                    }
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(.secondary.opacity(0.12), lineWidth: 1)
                 }
-                .padding(.trailing, 4)
             }
+            if model.selectedItem == nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    Image(systemName: "cursorarrow.click")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
+                    Text("点击左侧矩形查看路径详情")
+                        .font(.headline)
+                    Text("磁盘全景只用于空间观察和定位。清理操作请回到首页进入一键清理。")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(.secondary.opacity(0.12), lineWidth: 1)
+                }
+            }
+            Spacer()
         }
         .padding(16)
     }
@@ -312,7 +527,7 @@ private struct SummaryStrip: View {
             if let progress {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 14) {
-                        Text("当前：\(progress.currentPath.isEmpty ? "准备中" : progress.currentPath)")
+                        Text("\(progress.phase.label)：\(progress.currentPath.isEmpty ? "准备中" : progress.currentPath)")
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Spacer()
@@ -385,6 +600,297 @@ private struct MetricView: View {
     }
 }
 
+private struct HomeActionButton: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 18) {
+                ZStack {
+                    Circle()
+                        .fill(tint.opacity(0.12))
+                    Image(systemName: systemImage)
+                        .font(.system(size: 32, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
+                .frame(width: 68, height: 68)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                        .font(.title2.weight(.bold))
+                        .foregroundStyle(.primary)
+                    Text(subtitle)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer()
+                Image(systemName: "arrow.right")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(22)
+            .frame(maxWidth: .infinity, minHeight: 132)
+            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(tint.opacity(0.24), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct HomeStatusStrip: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.callout.weight(.semibold))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.secondary.opacity(0.12), lineWidth: 1)
+        }
+    }
+}
+
+private struct HomeSignalMark: View {
+    var body: some View {
+        ZStack(alignment: .center) {
+            Circle()
+                .fill(Color.green.opacity(0.10))
+                .frame(width: 128, height: 128)
+            Circle()
+                .stroke(Color.green.opacity(0.24), lineWidth: 1)
+                .frame(width: 98, height: 98)
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: 42))
+                path.addLine(to: CGPoint(x: 36, y: 42))
+                path.addLine(to: CGPoint(x: 49, y: 13))
+                path.addLine(to: CGPoint(x: 68, y: 71))
+                path.addLine(to: CGPoint(x: 88, y: 32))
+                path.addLine(to: CGPoint(x: 105, y: 42))
+                path.addLine(to: CGPoint(x: 132, y: 42))
+            }
+            .stroke(Color.green, style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+            .frame(width: 132, height: 84)
+        }
+        .frame(width: 150, height: 150)
+    }
+}
+
+private struct HomeTrustPill: View {
+    let text: String
+    let systemImage: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.caption.weight(.semibold))
+            Text(text)
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.secondary.opacity(0.08), in: Capsule())
+    }
+}
+
+private struct CleanupSectionView: View {
+    let section: CleanupSection
+    let toggleSection: () -> Void
+    let toggleCandidate: (CleanupCandidate) -> Void
+    let revealInFinder: (String) -> Void
+    let copyPath: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                Button(action: toggleSection) {
+                    Image(systemName: section.allSelected ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(section.kind.defaultSelected ? .green : .secondary)
+                }
+                .buttonStyle(.plain)
+
+                Image(systemName: section.kind.systemImage)
+                    .foregroundStyle(section.kind.defaultSelected ? .green : .orange)
+                    .font(.title3)
+                    .frame(width: 24)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(section.kind.title)
+                        .font(.title3.weight(.bold))
+                    Text(section.kind.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text("\(section.selectedCount)/\(section.candidates.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Text(ByteFormat.string(section.selectedBytes))
+                    .font(.caption.monospacedDigit().weight(.semibold))
+            }
+            .padding(.bottom, 2)
+
+            if section.candidates.isEmpty {
+                Text("暂无候选项")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 28)
+            } else {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 285), spacing: 12)], spacing: 12) {
+                    ForEach(section.candidates.prefix(24)) { candidate in
+                        CleanupCandidateCard(
+                            candidate: candidate,
+                            toggle: { toggleCandidate(candidate) },
+                            revealInFinder: revealInFinder,
+                            copyPath: copyPath
+                        )
+                    }
+                }
+                if section.candidates.count > 24 {
+                    Text("还有 \(section.candidates.count - 24) 项未显示")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 28)
+                }
+            }
+        }
+        .padding(16)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.secondary.opacity(0.12), lineWidth: 1)
+        }
+    }
+}
+
+private struct CleanupCandidateCard: View {
+    let candidate: CleanupCandidate
+    let toggle: () -> Void
+    let revealInFinder: (String) -> Void
+    let copyPath: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .top, spacing: 8) {
+                Button(action: toggle) {
+                    Image(systemName: candidate.isSelected ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(candidate.isSelected ? .green : .secondary)
+                }
+                .buttonStyle(.plain)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(candidate.title)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(1)
+                    Text(ByteFormat.string(candidate.sizeBytes))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                RiskBadge(risk: candidate.risk)
+            }
+
+            Text(candidate.path)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .truncationMode(.middle)
+                .help(candidate.path)
+
+            Text(candidate.detail)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack {
+                Spacer()
+                Button {
+                    copyPath(candidate.path)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .help("复制路径")
+                Button {
+                    revealInFinder(candidate.path)
+                } label: {
+                    Image(systemName: "finder")
+                }
+                .buttonStyle(.borderless)
+                .help("Finder 中显示")
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 148, alignment: .topLeading)
+        .background(candidate.isSelected ? Color.green.opacity(0.11) : Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(candidate.isSelected ? Color.green.opacity(0.45) : Color.secondary.opacity(0.14), lineWidth: 1)
+        }
+    }
+}
+
+private struct PanoramaInspectorStat: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.callout.monospacedDigit().weight(.semibold))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(9)
+        .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+    }
+}
+
+private struct CleanupResultBanner: View {
+    let result: CleanupExecutionResult
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: result.failures.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(result.failures.isEmpty ? .green : .orange)
+            Text("已移入废纸篓 \(result.cleaned.count) 项，约 \(ByteFormat.string(result.cleanedBytes))")
+                .font(.callout.weight(.semibold))
+            if !result.failures.isEmpty {
+                Text("失败 \(result.failures.count) 项")
+                    .foregroundStyle(.orange)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
 private struct ItemsTable: View {
     let items: [ScanItem]
     let copyPath: (String) -> Void
@@ -445,66 +951,12 @@ private struct ItemsTable: View {
         Button("Finder 中显示") {
             revealInFinder(item.path)
         }
-        if let command = command(from: item.recommendedAction) {
+        if let command = item.command {
             Divider()
             Button("复制建议命令") {
                 copyCommand(command)
             }
         }
-    }
-
-    private func command(from action: String) -> String? {
-        let marker = "可复制命令："
-        guard let range = action.range(of: marker) else { return nil }
-        let command = action[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-        return command.isEmpty ? nil : command
-    }
-}
-
-private struct RecommendationRow: View {
-    let recommendation: Recommendation
-    let copyCommand: (String) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(recommendation.title)
-                    .font(.headline)
-                Spacer()
-                Text(ByteFormat.string(recommendation.estimatedBytes))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            Text(recommendation.affectedPath)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(recommendation.affectedPath)
-            Text(recommendation.steps)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-            if !recommendation.rationale.isEmpty {
-                Text("依据：\(recommendation.rationale)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack {
-                RiskBadge(risk: recommendation.risk)
-                Spacer()
-                if let command = recommendation.command {
-                    Button {
-                        copyCommand(command)
-                    } label: {
-                        Label("复制命令", systemImage: "doc.on.doc")
-                    }
-                    .help(command)
-                }
-            }
-        }
-        .padding(12)
-        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 

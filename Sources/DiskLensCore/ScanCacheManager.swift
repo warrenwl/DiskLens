@@ -99,7 +99,7 @@ public enum ScanCacheManager {
     }
 
     public static func appendToHistory(_ summary: ScanSummary) throws {
-        var history = (try? loadHistory()) ?? []
+        var history = try loadHistory()
         history.append(summary)
         if history.count > maxHistoryEntries {
             history = Array(history.suffix(maxHistoryEntries))

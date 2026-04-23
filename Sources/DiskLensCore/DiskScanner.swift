@@ -3,18 +3,15 @@ import Foundation
 public struct ScanOptions: Sendable {
     public var mode: ScanMode
     public var customRoots: [URL]
-    public var maxDisplayDepth: Int
     public var maxChildrenPerNode: Int
 
     public init(
         mode: ScanMode,
         customRoots: [URL] = [],
-        maxDisplayDepth: Int = 3,
         maxChildrenPerNode: Int = 120
     ) {
         self.mode = mode
         self.customRoots = customRoots
-        self.maxDisplayDepth = maxDisplayDepth
         self.maxChildrenPerNode = maxChildrenPerNode
     }
 }
@@ -22,14 +19,25 @@ public struct ScanOptions: Sendable {
 public struct DirectoryLevelResult: Sendable {
     public var item: ScanItem
     public var inaccessiblePaths: [String]
+    public var scannedDirectories: Int
+    public var scannedFiles: Int
 
-    public init(item: ScanItem, inaccessiblePaths: [String]) {
+    public init(
+        item: ScanItem,
+        inaccessiblePaths: [String],
+        scannedDirectories: Int = 0,
+        scannedFiles: Int = 0
+    ) {
         self.item = item
         self.inaccessiblePaths = inaccessiblePaths
+        self.scannedDirectories = scannedDirectories
+        self.scannedFiles = scannedFiles
     }
 }
 
 public struct DiskScanner: Sendable {
+    private static let duTimeoutSeconds: TimeInterval = 20
+
     public init() {}
 
     public func scan(
@@ -39,9 +47,17 @@ public struct DiskScanner: Sendable {
         await Self.scanSync(options: options, onProgress: onProgress)
     }
 
-    public func scanDirectoryLevel(url: URL, parentPath: String? = nil) async -> DirectoryLevelResult {
+    public func scanDirectoryLevel(
+        url: URL,
+        parentPath: String? = nil,
+        maxChildrenPerNode: Int = 120
+    ) async -> DirectoryLevelResult {
         await Task.detached(priority: .userInitiated) {
-            Self.scanDirectoryLevelSync(url: url, parentPath: parentPath)
+            Self.scanDirectoryLevelSync(
+                url: url,
+                parentPath: parentPath,
+                maxChildrenPerNode: maxChildrenPerNode
+            )
         }.value
     }
 
@@ -60,10 +76,16 @@ public struct DiskScanner: Sendable {
                 guard FileManager.default.fileExists(atPath: root.path) else { continue }
                 group.addTask {
                     if Task.isCancelled { return nil }
+                    progress.setPhase(.estimating)
                     progress.setCurrentPath(root.path)
                     progress.emit(force: true)
-                    let result = scanDirectoryLevelSync(url: root, parentPath: nil)
+                    let result = scanDirectoryLevelSync(
+                        url: root,
+                        parentPath: nil,
+                        maxChildrenPerNode: options.maxChildrenPerNode
+                    )
                     progress.addBytes(result.item.sizeBytes)
+                    progress.addMeasured(directories: result.scannedDirectories, files: result.scannedFiles)
                     for p in result.inaccessiblePaths { progress.recordInaccessible(p) }
                     progress.emit(force: true)
                     return result.item
@@ -74,6 +96,7 @@ public struct DiskScanner: Sendable {
             }
         }
 
+        progress.setPhase(.finalizing)
         progress.setCancelled(Task.isCancelled)
         progress.emit(force: true)
 
@@ -126,136 +149,6 @@ public struct DiskScanner: Sendable {
         case .custom:
             return options.customRoots.deduplicatedByPath()
         }
-    }
-
-    private static func scanNode(
-        _ url: URL,
-        depth: Int,
-        parentPath: String?,
-        maxDisplayDepth: Int,
-        maxChildrenPerNode: Int,
-        progress: ScanProgressTracker
-    ) -> (item: ScanItem, inaccessibleCount: Int) {
-        let path = url.path
-        let name = displayName(for: url)
-        let kind = itemKind(for: url)
-        var inaccessibleCount = kind == .inaccessible ? 1 : 0
-        progress.setCurrentPath(path)
-        switch kind {
-        case .directory:
-            progress.incrementDirectories()
-        case .file, .symlink:
-            progress.incrementFiles()
-        case .inaccessible:
-            progress.recordInaccessible(path)
-        }
-        progress.emit(force: false)
-
-        if kind == .file || kind == .symlink || kind == .inaccessible {
-            let bytes = allocatedSize(for: url)
-            progress.addBytes(bytes)
-            let classification = ClassificationRules.classify(path: path, kind: kind, sizeBytes: bytes)
-            progress.emit(force: false)
-            return (
-                ScanItem(
-                    path: path,
-                    name: name,
-                    sizeBytes: bytes,
-                    depth: depth,
-                    parentPath: parentPath,
-                    kind: kind,
-                    category: classification.category,
-                    risk: classification.risk,
-                    reclaimableBytes: Int64(Double(bytes) * classification.reclaimableRatio),
-                    recommendedAction: classification.recommendedAction,
-                    detail: classification.detail,
-                    isReadable: kind != .inaccessible,
-                    children: []
-                ),
-                inaccessibleCount
-            )
-        }
-
-        let childrenURLs: [URL]
-        do {
-            childrenURLs = try FileManager.default.contentsOfDirectory(
-                at: url,
-                includingPropertiesForKeys: resourceKeys,
-                options: []
-            )
-        } catch {
-            let bytes = allocatedSize(for: url)
-            progress.addBytes(bytes)
-            progress.recordInaccessible(path)
-            let classification = ClassificationRules.classify(path: path, kind: .inaccessible, sizeBytes: bytes)
-            progress.emit(force: false)
-            return (
-                ScanItem(
-                    path: path,
-                    name: name,
-                    sizeBytes: bytes,
-                    depth: depth,
-                    parentPath: parentPath,
-                    kind: .inaccessible,
-                    category: classification.category,
-                    risk: classification.risk,
-                    reclaimableBytes: 0,
-                    recommendedAction: classification.recommendedAction,
-                    detail: "无法读取：\(error.localizedDescription)",
-                    isReadable: false,
-                    children: []
-                ),
-                inaccessibleCount + 1
-            )
-        }
-
-        var childItems: [ScanItem] = []
-        var totalBytes = allocatedSize(for: url)
-
-        for childURL in childrenURLs {
-            if Task.isCancelled { break }
-            let child = scanNode(
-                childURL,
-                depth: depth + 1,
-                parentPath: path,
-                maxDisplayDepth: maxDisplayDepth,
-                maxChildrenPerNode: maxChildrenPerNode,
-                progress: progress
-            )
-            inaccessibleCount += child.inaccessibleCount
-            totalBytes += child.item.sizeBytes
-            if depth < maxDisplayDepth {
-                childItems.append(child.item)
-            }
-        }
-
-        childItems.sort { lhs, rhs in
-            if lhs.sizeBytes == rhs.sizeBytes { return lhs.name < rhs.name }
-            return lhs.sizeBytes > rhs.sizeBytes
-        }
-        if childItems.count > maxChildrenPerNode {
-            childItems = Array(childItems.prefix(maxChildrenPerNode))
-        }
-
-        let classification = ClassificationRules.classify(path: path, kind: .directory, sizeBytes: totalBytes)
-        return (
-            ScanItem(
-                path: path,
-                name: name,
-                sizeBytes: totalBytes,
-                depth: depth,
-                parentPath: parentPath,
-                kind: .directory,
-                category: classification.category,
-                risk: classification.risk,
-                reclaimableBytes: Int64(Double(totalBytes) * classification.reclaimableRatio),
-                recommendedAction: classification.recommendedAction,
-                detail: classification.detail,
-                isReadable: true,
-                children: childItems
-            ),
-            inaccessibleCount
-        )
     }
 
     private static func itemKind(for url: URL) -> ItemKind {
@@ -339,7 +232,11 @@ public struct DiskScanner: Sendable {
         return url.lastPathComponent.isEmpty ? path : url.lastPathComponent
     }
 
-    private static func scanDirectoryLevelSync(url: URL, parentPath: String?) -> DirectoryLevelResult {
+    private static func scanDirectoryLevelSync(
+        url: URL,
+        parentPath: String?,
+        maxChildrenPerNode: Int = 120
+    ) -> DirectoryLevelResult {
         var inaccessiblePaths: [String] = []
         let rootPath = url.path
         let kind = itemKind(for: url)
@@ -359,15 +256,22 @@ public struct DiskScanner: Sendable {
                     risk: classification.risk,
                     reclaimableBytes: Int64(Double(bytes) * classification.reclaimableRatio),
                     recommendedAction: classification.recommendedAction,
+                    command: classification.command,
                     detail: classification.detail,
                     isReadable: kind != .inaccessible,
                     children: []
                 ),
-                inaccessiblePaths: kind == .inaccessible ? [rootPath] : []
+                inaccessiblePaths: kind == .inaccessible ? [rootPath] : [],
+                scannedDirectories: 0,
+                scannedFiles: kind == .file || kind == .symlink ? 1 : 0
             )
         }
 
-        if let duResult = duDirectoryLevel(url: url, parentPath: parentPath) {
+        if let duResult = duDirectoryLevel(
+            url: url,
+            parentPath: parentPath,
+            maxChildrenPerNode: maxChildrenPerNode
+        ) {
             return duResult
         }
 
@@ -385,6 +289,7 @@ public struct DiskScanner: Sendable {
                 return lhs.sizeBytes > rhs.sizeBytes
             }
             let total = childItems.reduce(allocatedSize(for: url)) { $0 + $1.sizeBytes }
+            let measured = measuredCounts(rootKind: .directory, children: childItems)
             let classification = ClassificationRules.classify(path: rootPath, kind: .directory, sizeBytes: total)
             return DirectoryLevelResult(
                 item: ScanItem(
@@ -398,11 +303,14 @@ public struct DiskScanner: Sendable {
                     risk: classification.risk,
                     reclaimableBytes: Int64(Double(total) * classification.reclaimableRatio),
                     recommendedAction: classification.recommendedAction,
+                    command: classification.command,
                     detail: classification.detail,
                     isReadable: true,
-                    children: Array(childItems.prefix(120))
+                    children: Array(childItems.prefix(maxChildrenPerNode))
                 ),
-                inaccessiblePaths: inaccessiblePaths
+                inaccessiblePaths: inaccessiblePaths,
+                scannedDirectories: measured.directories,
+                scannedFiles: measured.files
             )
         } catch {
             inaccessiblePaths.append(rootPath)
@@ -419,11 +327,14 @@ public struct DiskScanner: Sendable {
                     risk: classification.risk,
                     reclaimableBytes: 0,
                     recommendedAction: classification.recommendedAction,
+                    command: classification.command,
                     detail: "无法读取：\(error.localizedDescription)",
                     isReadable: false,
                     children: []
                 ),
-                inaccessiblePaths: inaccessiblePaths
+                inaccessiblePaths: inaccessiblePaths,
+                scannedDirectories: 0,
+                scannedFiles: 0
             )
         }
     }
@@ -443,13 +354,35 @@ public struct DiskScanner: Sendable {
             risk: classification.risk,
             reclaimableBytes: Int64(Double(bytes) * classification.reclaimableRatio),
             recommendedAction: classification.recommendedAction,
+            command: classification.command,
             detail: classification.detail,
             isReadable: kind != .inaccessible,
             children: []
         )
     }
 
-    private static func duDirectoryLevel(url: URL, parentPath: String?) -> DirectoryLevelResult? {
+    private static func measuredCounts(
+        rootKind: ItemKind,
+        children: [ScanItem]
+    ) -> (directories: Int, files: Int) {
+        let rootDirectories = rootKind == .directory ? 1 : 0
+        return children.reduce((directories: rootDirectories, files: 0)) { partial, item in
+            switch item.kind {
+            case .directory:
+                return (partial.directories + 1, partial.files)
+            case .file, .symlink:
+                return (partial.directories, partial.files + 1)
+            case .inaccessible:
+                return partial
+            }
+        }
+    }
+
+    private static func duDirectoryLevel(
+        url: URL,
+        parentPath: String?,
+        maxChildrenPerNode: Int
+    ) -> DirectoryLevelResult? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/du")
         process.arguments = ["-x", "-k", "-d", "1", url.path]
@@ -461,8 +394,11 @@ public struct DiskScanner: Sendable {
 
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
+            return nil
+        }
+
+        guard waitForDu(process, timeout: duTimeoutSeconds) else {
             return nil
         }
 
@@ -501,6 +437,7 @@ public struct DiskScanner: Sendable {
                 return lhs.sizeBytes > rhs.sizeBytes
             }
 
+        let measured = measuredCounts(rootKind: .directory, children: childItems)
         let classification = ClassificationRules.classify(path: url.path, kind: .directory, sizeBytes: rootEntry.bytes)
         let root = ScanItem(
             path: url.path,
@@ -513,11 +450,33 @@ public struct DiskScanner: Sendable {
             risk: classification.risk,
             reclaimableBytes: Int64(Double(rootEntry.bytes) * classification.reclaimableRatio),
             recommendedAction: classification.recommendedAction,
+            command: classification.command,
             detail: classification.detail,
             isReadable: true,
-            children: Array(childItems.prefix(120))
+            children: Array(childItems.prefix(maxChildrenPerNode))
         )
-        return DirectoryLevelResult(item: root, inaccessiblePaths: inaccessible)
+        return DirectoryLevelResult(
+            item: root,
+            inaccessiblePaths: inaccessible,
+            scannedDirectories: measured.directories,
+            scannedFiles: measured.files
+        )
+    }
+
+    private static func waitForDu(_ process: Process, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning {
+            if Task.isCancelled || Date() >= deadline {
+                process.terminate()
+                let terminationDeadline = Date().addingTimeInterval(1)
+                while process.isRunning && Date() < terminationDeadline {
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+                return false
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        return true
     }
 
     private static func itemFromDu(path: String, bytes: Int64, parentPath: String) -> ScanItem {
@@ -535,6 +494,7 @@ public struct DiskScanner: Sendable {
             risk: classification.risk,
             reclaimableBytes: Int64(Double(bytes) * classification.reclaimableRatio),
             recommendedAction: classification.recommendedAction,
+            command: classification.command,
             detail: classification.detail,
             isReadable: kind != .inaccessible,
             children: []
@@ -582,15 +542,16 @@ private final class ScanProgressTracker: @unchecked Sendable {
         lock.unlock()
     }
 
-    func incrementDirectories() {
+    func setPhase(_ phase: ScanPhase) {
         lock.lock()
-        progress.scannedDirectories += 1
+        progress.phase = phase
         lock.unlock()
     }
 
-    func incrementFiles() {
+    func addMeasured(directories: Int, files: Int) {
         lock.lock()
-        progress.scannedFiles += 1
+        progress.scannedDirectories += directories
+        progress.scannedFiles += files
         lock.unlock()
     }
 
