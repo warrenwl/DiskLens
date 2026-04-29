@@ -4,6 +4,8 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var model = AppModel()
+    @State private var inspectorHeight: CGFloat = 300
+    @GestureState private var inspectorDragOffset: CGFloat = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -133,11 +135,13 @@ struct ContentView: View {
                             .stroke(.secondary.opacity(0.10), lineWidth: 0.5)
                     }
 
-                    VStack(spacing: 14) {
-                        Spacer(minLength: 20)
+                    VStack(spacing: 10) {
+                        Spacer(minLength: 24)
                         HomeStatusStrip(
                             title: model.cachedResult == nil ? "未加载历史扫描" : "已有历史扫描",
-                            subtitle: model.lastScanAge.map { "上次扫描 \($0)" } ?? "进入磁盘全景开始第一次扫描"
+                            inaccessibleCount: (model.result ?? model.cachedResult)?.summary.inaccessibleCount ?? 0,
+                            inaccessiblePaths: (model.result ?? model.cachedResult)?.summary.inaccessiblePaths ?? [],
+                            onOpenDiskAccess: model.openFullDiskAccessSettings
                         )
                         HomeActionButton(
                             title: "磁盘全景",
@@ -154,11 +158,11 @@ struct ContentView: View {
                             action: model.openCleanup
                         )
 
-                        Spacer(minLength: 12)
+                        Spacer(minLength: 8)
 
                         HomeFeatureRow()
 
-                        Spacer(minLength: 20)
+                        Spacer(minLength: 24)
                     }
                     .frame(width: 430)
                     .padding(.horizontal, 18)
@@ -194,7 +198,7 @@ struct ContentView: View {
     }
 
     private var panoramaToolbar: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Button {
                     model.openHome()
@@ -252,15 +256,41 @@ struct ContentView: View {
             }
 
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                TextField("搜索路径、分类、建议", text: $model.searchText)
-                    .textFieldStyle(.plain)
-                    .font(.callout)
-
-                Divider()
-                    .frame(height: 18)
+                HStack(spacing: 8) {
+                    ZStack {
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.12))
+                            .frame(width: 24, height: 24)
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+                    TextField("搜索路径、分类、建议", text: $model.searchText)
+                        .textFieldStyle(.plain)
+                        .font(.callout)
+                    if !model.searchText.isEmpty {
+                        Button {
+                            model.searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 3)
+                .frame(maxWidth: 320)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(.background)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.22), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.04), radius: 3, y: 1)
 
                 Picker("筛选", selection: $model.riskFilter) {
                     ForEach(RiskFilter.allCases) { filter in
@@ -276,7 +306,7 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 110)
+                .frame(width: 140)
 
                 Picker("排序", selection: $model.sortOption) {
                     ForEach(ItemSortOption.allCases) { option in
@@ -284,7 +314,7 @@ struct ContentView: View {
                     }
                 }
                 .pickerStyle(.menu)
-                .frame(width: 100)
+                .frame(width: 130)
 
                 Spacer()
 
@@ -295,12 +325,9 @@ struct ContentView: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: 260, alignment: .trailing)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.6), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 6)
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
 
@@ -436,17 +463,60 @@ struct ContentView: View {
                     onBreadcrumb: model.jumpToBreadcrumb
                 )
                     .frame(minWidth: 620)
-                panoramaInspector()
+                rightPanel
                     .frame(minWidth: 390, idealWidth: 460)
             }
-            Divider()
-            ItemsTable(
-                items: model.filteredItems,
-                copyPath: model.copyPath,
-                revealInFinder: model.revealInFinder,
-                copyCommand: model.copy
-            )
-                .frame(minHeight: 220)
+        }
+    }
+
+    private var rightPanel: some View {
+        let clampedHeight = max(150, inspectorHeight + inspectorDragOffset)
+        let drag = DragGesture(minimumDistance: 1)
+            .updating($inspectorDragOffset) { value, state, _ in
+                state = value.translation.height
+            }
+            .onEnded { value in
+                inspectorHeight = max(150, inspectorHeight + value.translation.height)
+            }
+
+        return VStack(spacing: 0) {
+            panoramaInspector()
+                .frame(height: clampedHeight)
+
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor))
+                .frame(height: 1)
+                .padding(.vertical, 3)
+                .contentShape(Rectangle())
+                .onHover { hovering in
+                    if hovering { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+                }
+                .gesture(drag)
+
+            VStack(spacing: 0) {
+                HStack {
+                    Text("文件列表")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text("\(model.filteredItems.count) 项")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+
+                ItemsTable(
+                    items: model.filteredItems,
+                    copyPath: model.copyPath,
+                    revealInFinder: model.revealInFinder,
+                    copyCommand: model.copy
+                )
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
+            .frame(minHeight: 160, maxHeight: .infinity)
         }
     }
 
@@ -462,8 +532,8 @@ struct ContentView: View {
                         model.clearSelection()
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .font(.title3)
+                            .foregroundStyle(.red.opacity(0.6))
                     }
                     .buttonStyle(.plain)
                 }
@@ -509,6 +579,22 @@ struct ContentView: View {
                         PanoramaInspectorStat(title: "分类", value: selected.category.label)
                         PanoramaInspectorStat(title: "类型", value: selected.kind.rawValue)
                     }
+
+                    if !selected.recommendedAction.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "lightbulb.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                            Text(selected.recommendedAction)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
                 }
                 .padding(14)
                 .background(
@@ -525,9 +611,14 @@ struct ContentView: View {
             if model.selectedItem == nil {
                 VStack(alignment: .center, spacing: 10) {
                     Spacer()
-                    Image(systemName: "cursorarrow.click")
-                        .font(.system(size: 28))
-                        .foregroundStyle(.quaternary)
+                    ZStack {
+                        Circle()
+                            .fill(Color.green.opacity(0.08))
+                            .frame(width: 56, height: 56)
+                        Image(systemName: "cursorarrow.click")
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundStyle(.green.opacity(0.6))
+                    }
                     Text("点击矩形查看详情")
                         .font(.callout.weight(.medium))
                         .foregroundStyle(.secondary)
@@ -541,7 +632,8 @@ struct ContentView: View {
                 .padding(14)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color(nsColor: .controlBackgroundColor))
+                        .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [6, 4]))
+                        .foregroundStyle(.secondary.opacity(0.15))
                 )
             }
             Spacer()
@@ -602,25 +694,17 @@ private struct SummaryStrip: View {
     let summary: ScanSummary
     let progress: ScanProgress?
     let openSettings: () -> Void
-    @State private var showInaccessible = false
+    @State private var showInaccessibleSheet = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 18) {
-                MetricView(title: "总容量", value: ByteFormat.string(summary.totalBytes), systemImage: "internaldrive")
-                MetricView(title: "已用", value: ByteFormat.string(summary.usedBytes), systemImage: "chart.pie")
-                MetricView(title: "可用", value: ByteFormat.string(summary.availableBytes), systemImage: "checkmark.circle")
-                MetricView(title: "Data 卷", value: ByteFormat.string(summary.dataVolumeBytes), systemImage: "externaldrive")
-                MetricView(title: progress == nil ? "本次扫描" : "已扫描", value: ByteFormat.string(progress?.scannedBytes ?? summary.scannedBytes), systemImage: "scope")
+            HStack(spacing: 12) {
+                MetricView(title: "总容量", value: ByteFormat.string(summary.totalBytes), systemImage: "internaldrive", tint: .blue)
+                MetricView(title: "已用", value: ByteFormat.string(summary.usedBytes), systemImage: "chart.pie", tint: .orange)
+                MetricView(title: "可用", value: ByteFormat.string(summary.availableBytes), systemImage: "checkmark.circle", tint: .green)
+                MetricView(title: "Data 卷", value: ByteFormat.string(summary.dataVolumeBytes), systemImage: "externaldrive", tint: .secondary)
+                MetricView(title: progress == nil ? "本次扫描" : "已扫描", value: ByteFormat.string(progress?.scannedBytes ?? summary.scannedBytes), systemImage: "scope", tint: .teal)
                 Spacer()
-                if summary.inaccessibleCount > 0 || !(progress?.inaccessiblePaths.isEmpty ?? true) {
-                    Button {
-                        openSettings()
-                    } label: {
-                        Label("完全磁盘访问", systemImage: "lock.open")
-                    }
-                    .help("打开系统设置，给 DiskLens 或终端授予完全磁盘访问权限")
-                }
             }
 
             if let progress {
@@ -643,26 +727,27 @@ private struct SummaryStrip: View {
 
             let inaccessiblePaths = progress?.inaccessiblePaths ?? summary.inaccessiblePaths
             if !inaccessiblePaths.isEmpty {
-                DisclosureGroup(isExpanded: $showInaccessible) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(inaccessiblePaths.prefix(20), id: \.self) { path in
-                            Text(path)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        if inaccessiblePaths.count > 20 {
-                            Text("还有 \(inaccessiblePaths.count - 20) 项未显示")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    .padding(.top, 4)
+                Button {
+                    showInaccessibleSheet = true
                 } label: {
-                    Text("无法读取 \(inaccessiblePaths.count) 项，可能需要完全磁盘访问权限")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.orange)
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                        Text("无法读取 \(inaccessiblePaths.count) 项")
+                            .font(.caption.weight(.semibold))
+                        Spacer()
+                        Text("查看详情")
+                            .font(.caption2)
+                            .underline()
+                    }
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .sheet(isPresented: $showInaccessibleSheet) {
+                    InaccessiblePathsSheet(paths: inaccessiblePaths, openSettings: openSettings)
                 }
             }
         }
@@ -682,16 +767,17 @@ private struct MetricView: View {
     let title: String
     let value: String
     let systemImage: String
+    var tint: Color = .blue
 
     var body: some View {
         HStack(spacing: 8) {
             ZStack {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(.blue.opacity(0.08))
+                    .fill(tint.opacity(0.10))
                     .frame(width: 28, height: 28)
                 Image(systemName: systemImage)
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(tint)
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
@@ -702,6 +788,12 @@ private struct MetricView: View {
                     .font(.callout.weight(.bold).monospacedDigit())
             }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(tint.opacity(0.04))
+        )
     }
 }
 
@@ -762,13 +854,17 @@ private struct HomeActionButton: View {
             .animation(.easeOut(duration: 0.18), value: isHovered)
         }
         .buttonStyle(.plain)
+        .background(PointerCursorArea())
         .onHover { isHovered = $0 }
     }
 }
 
 private struct HomeStatusStrip: View {
     let title: String
-    let subtitle: String
+    let inaccessibleCount: Int
+    let inaccessiblePaths: [String]
+    let onOpenDiskAccess: () -> Void
+    @State private var showInaccessibleSheet = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -781,14 +877,49 @@ private struct HomeStatusStrip: View {
                     .foregroundStyle(.secondary)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(subtitle)
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.callout.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    if inaccessibleCount > 0 {
+                        Button {
+                            showInaccessibleSheet = true
+                        } label: {
+                            Text("\(inaccessibleCount) 项不可读")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.orange.opacity(0.10), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .background(PointerCursorArea())
+                        .sheet(isPresented: $showInaccessibleSheet) {
+                            InaccessiblePathsSheet(paths: inaccessiblePaths, openSettings: onOpenDiskAccess)
+                        }
+                    }
+                }
+                Text("进入磁盘全景开始扫描")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if inaccessibleCount > 0 {
+                Button {
+                    onOpenDiskAccess()
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "lock.open")
+                            .font(.caption)
+                        Text("完全磁盘访问")
+                            .font(.callout.weight(.medium))
+                    }
+                    .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+                .background(PointerCursorArea())
+                .help("打开系统设置，给 DiskLens 或终端授予完全磁盘访问权限")
+            }
         }
         .padding(14)
         .background(
@@ -1270,51 +1401,87 @@ private struct ItemsTable: View {
     let copyPath: (String) -> Void
     let revealInFinder: (String) -> Void
     let copyCommand: (String) -> Void
+    @State private var hoveredID: String?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Table(items) {
-            TableColumn("大小") { item in
-                Text(ByteFormat.string(item.sizeBytes))
-                    .monospacedDigit()
-            }
-            .width(min: 90, ideal: 110, max: 140)
-
-            TableColumn("风险") { item in
-                RiskBadge(risk: item.risk)
-            }
-            .width(min: 92, ideal: 110, max: 130)
-
-            TableColumn("分类") { item in
-                Text(item.category.label)
-            }
-            .width(min: 100, ideal: 120, max: 150)
-
-            TableColumn("路径") { item in
-                Text(item.path)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(item.path)
-                    .contextMenu {
-                        itemMenu(item)
-                    }
-            }
-
-            TableColumn("建议") { item in
-                Text(item.recommendedAction)
-                    .lineLimit(1)
-            }
-            .width(min: 220, ideal: 320)
-
-            TableColumn("操作") { item in
-                Menu {
-                    itemMenu(item)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+        ScrollView(.vertical, showsIndicators: true) {
+            LazyVStack(spacing: 0) {
+                tableHeader
+                ForEach(Array(items.prefix(200).enumerated()), id: \.element.id) { index, item in
+                    tableRow(item, index: index)
+                        .contentShape(Rectangle())
+                        .background(PointerCursorArea())
+                        .onHover { hovering in
+                            withAnimation(.easeOut(duration: 0.12)) {
+                                hoveredID = hovering ? item.id : nil
+                            }
+                        }
+                        .contextMenu { itemMenu(item) }
                 }
-                .menuStyle(.borderlessButton)
             }
-            .width(min: 48, ideal: 56, max: 70)
         }
+    }
+
+    private var tableHeader: some View {
+        HStack(spacing: 8) {
+            Text("大小")
+                .frame(width: 86, alignment: .leading)
+            Text("类型")
+                .frame(width: 52, alignment: .center)
+            Text("风险")
+                .frame(width: 76, alignment: .leading)
+            Text("路径")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("操作")
+                .frame(width: 40)
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(.tertiary)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+    }
+
+    private func tableRow(_ item: ScanItem, index: Int) -> some View {
+        let isHovered = hoveredID == item.id
+        let isDark = colorScheme == .dark
+        return HStack(spacing: 8) {
+            Text(ByteFormat.string(item.sizeBytes))
+                .monospacedDigit()
+                .font(.caption.weight(.medium))
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .frame(width: 86, alignment: .leading)
+
+            KindTag(kind: item.kind)
+                .frame(width: 52, alignment: .center)
+
+            RiskBadge(risk: item.risk)
+                .frame(width: 76, alignment: .leading)
+
+            Text(item.path)
+                .font(.caption)
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(item.path)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Menu {
+                itemMenu(item)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .foregroundStyle(isHovered ? .secondary : .tertiary)
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 36)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(isHovered ? Color.primary.opacity(isDark ? 0.10 : 0.06) : (index % 2 == 1 ? Color.primary.opacity(0.02) : .clear))
+        )
     }
 
     @ViewBuilder
@@ -1364,5 +1531,144 @@ private struct RiskBadge: View {
         case .system:
             return (Color.blue.opacity(isDark ? 0.22 : 0.14), Color.blue)
         }
+    }
+}
+
+private struct KindTag: View {
+    let kind: ItemKind
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 9, weight: .semibold))
+            Text(label)
+                .font(.system(size: 10, weight: .semibold))
+        }
+        .foregroundStyle(color)
+    }
+
+    private var label: String {
+        switch kind {
+        case .file: return "文件"
+        case .directory: return "文件夹"
+        case .symlink: return "链接"
+        case .inaccessible: return "不可读"
+        }
+    }
+
+    private var icon: String {
+        switch kind {
+        case .file: return "doc.fill"
+        case .directory: return "folder.fill"
+        case .symlink: return "link"
+        case .inaccessible: return "lock.fill"
+        }
+    }
+
+    private var color: Color {
+        let isDark = colorScheme == .dark
+        switch kind {
+        case .directory: return isDark ? Color(red: 0.35, green: 0.55, blue: 1.0) : .blue
+        case .file: return isDark ? Color(red: 0.4, green: 0.8, blue: 0.4) : Color(red: 0.2, green: 0.6, blue: 0.2)
+        case .symlink: return .orange
+        case .inaccessible: return .secondary
+        }
+    }
+}
+
+private struct InaccessiblePathsSheet: View {
+    let paths: [String]
+    let openSettings: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("无法读取的路径")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    ForEach(paths, id: \.self) { path in
+                        Text(path)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                            .help(path)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 3)
+                    }
+                }
+                .padding(16)
+            }
+
+            Divider()
+
+            HStack {
+                Text("共 \(paths.count) 项")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Button("完全磁盘访问设置") {
+                    openSettings()
+                }
+                .buttonStyle(.bordered)
+                Button("关闭") {
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+        }
+        .frame(width: 520, height: 400)
+    }
+}
+
+private struct PointerCursorArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> PointerCursorNSView {
+        PointerCursorNSView()
+    }
+    func updateNSView(_ nsView: PointerCursorNSView, context: Context) {}
+}
+
+private final class PointerCursorNSView: NSView {
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let old = trackingArea {
+            removeTrackingArea(old)
+        }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
+        trackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        NSCursor.pointingHand.push()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.pop()
     }
 }

@@ -15,30 +15,42 @@ struct TreemapPanel: View {
     @State private var hoveredItem: ScanItem?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(title)
+                Label("磁盘全景", systemImage: "square.grid.3x3.fill")
                     .font(.title3.weight(.semibold))
+                    .foregroundStyle(.primary)
                 Spacer()
                 Legend()
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Array(breadcrumbs.enumerated()), id: \.offset) { index, crumb in
-                        if index > 0 {
-                            Image(systemName: "chevron.right")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+            if !breadcrumbs.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(Array(breadcrumbs.enumerated()), id: \.offset) { index, crumb in
+                            if index > 0 {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Button {
+                                onBreadcrumb(crumb.path)
+                            } label: {
+                                Text(crumb.label)
+                                    .lineLimit(1)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(
+                                        index == breadcrumbs.count - 1
+                                            ? Color.accentColor.opacity(0.12)
+                                            : Color.secondary.opacity(0.06),
+                                        in: Capsule()
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                            .background(TreemapCursorArea())
+                            .font(.caption.weight(index == breadcrumbs.count - 1 ? .semibold : .regular))
+                            .foregroundStyle(index == breadcrumbs.count - 1 ? Color.accentColor : .secondary)
                         }
-                        Button {
-                            onBreadcrumb(crumb.path)
-                        } label: {
-                            Text(crumb.label)
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.plain)
-                        .font(.caption.weight(index == breadcrumbs.count - 1 ? .semibold : .regular))
-                        .foregroundStyle(index == breadcrumbs.count - 1 ? .primary : .secondary)
                     }
                 }
             }
@@ -47,6 +59,7 @@ struct TreemapPanel: View {
                     Rectangle()
                         .fill(Color(nsColor: .controlBackgroundColor))
                         .allowsHitTesting(false)
+                    gridOverlay(proxy.size)
                     TreemapCanvas(
                         items: items,
                         rect: CGRect(origin: .zero, size: proxy.size),
@@ -65,18 +78,27 @@ struct TreemapPanel: View {
                 )
             }
             HoverStatusBar(item: hoveredItem)
-            SelectedInspector(
-                item: selectedItem,
-                isLoading: loadingPath == selectedItem?.path,
-                isCurrentRoot: selectedItem?.path == treemapRootPath,
-                onEnter: {
-                    if let item = selectedItem {
-                        onEnter(item)
-                    }
-                }
-            )
         }
         .padding(16)
+    }
+
+    private func gridOverlay(_ size: CGSize) -> some View {
+        Canvas { ctx, _ in
+            let step: CGFloat = 40
+            var x = step
+            while x < size.width {
+                ctx.stroke(Path { p in p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: size.height)) },
+                           with: .color(.secondary.opacity(0.04)), lineWidth: 0.5)
+                x += step
+            }
+            var y = step
+            while y < size.height {
+                ctx.stroke(Path { p in p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: size.width, y: y)) },
+                           with: .color(.secondary.opacity(0.04)), lineWidth: 0.5)
+                y += step
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
@@ -166,6 +188,7 @@ private struct TreemapCell: View {
             }
         }
         .frame(width: rect.width, height: rect.height)
+        .background(TreemapCursorArea())
         .contentShape(Rectangle())
         .help("\(item.path)\n\(ByteFormat.string(item.sizeBytes))\n\(item.recommendedAction)")
         .offset(x: rect.minX, y: rect.minY)
@@ -268,7 +291,13 @@ private struct HoverStatusBar: View {
                 Spacer()
             }
         }
-        .frame(minHeight: 26)
+        .frame(minHeight: 18)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 1)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+        )
     }
 }
 private struct SelectedInspector: View {
@@ -315,6 +344,12 @@ private struct SelectedInspector: View {
         .frame(minHeight: 34)
         .font(.caption)
         .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
+        )
     }
 }
 
@@ -388,4 +423,24 @@ private struct LegendDot: View {
             Text(label)
         }
     }
+}
+
+private struct TreemapCursorArea: NSViewRepresentable {
+    func makeNSView(context: Context) -> TreemapCursorNSView { TreemapCursorNSView() }
+    func updateNSView(_ nsView: TreemapCursorNSView, context: Context) {}
+}
+
+private final class TreemapCursorNSView: NSView {
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let old = trackingArea { removeTrackingArea(old) }
+        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self, userInfo: nil)
+        trackingArea = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) { NSCursor.pointingHand.push() }
+    override func mouseExited(with event: NSEvent) { NSCursor.pop() }
 }

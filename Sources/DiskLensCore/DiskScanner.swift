@@ -306,7 +306,7 @@ public struct DiskScanner: Sendable {
                     command: classification.command,
                     detail: classification.detail,
                     isReadable: true,
-                    children: Array(childItems.prefix(maxChildrenPerNode))
+                    children: balancedChildren(childItems, limit: maxChildrenPerNode)
                 ),
                 inaccessiblePaths: inaccessiblePaths,
                 scannedDirectories: measured.directories,
@@ -427,15 +427,24 @@ public struct DiskScanner: Sendable {
             return nil
         }
 
-        let childItems = sizes
+        var childItems = sizes
             .filter { $0.path != url.path }
             .map { entry in
                 itemFromDu(path: entry.path, bytes: entry.bytes, parentPath: url.path)
             }
-            .sorted { lhs, rhs in
-                if lhs.sizeBytes == rhs.sizeBytes { return lhs.name < rhs.name }
-                return lhs.sizeBytes > rhs.sizeBytes
+
+        // 补充 du -d 1 遗漏的直接子文件
+        let duPaths = Set(childItems.map(\.path))
+        if let directFiles = directChildFiles(of: url, parentPath: url.path) {
+            for file in directFiles where !duPaths.contains(file.path) {
+                childItems.append(file)
             }
+        }
+
+        childItems.sort { lhs, rhs in
+            if lhs.sizeBytes == rhs.sizeBytes { return lhs.name < rhs.name }
+            return lhs.sizeBytes > rhs.sizeBytes
+        }
 
         let measured = measuredCounts(rootKind: .directory, children: childItems)
         let classification = ClassificationRules.classify(path: url.path, kind: .directory, sizeBytes: rootEntry.bytes)
@@ -453,7 +462,7 @@ public struct DiskScanner: Sendable {
             command: classification.command,
             detail: classification.detail,
             isReadable: true,
-            children: Array(childItems.prefix(maxChildrenPerNode))
+            children: balancedChildren(childItems, limit: maxChildrenPerNode)
         )
         return DirectoryLevelResult(
             item: root,
@@ -499,6 +508,33 @@ public struct DiskScanner: Sendable {
             isReadable: kind != .inaccessible,
             children: []
         )
+    }
+
+    private static func directChildFiles(of url: URL, parentPath: String) -> [ScanItem]? {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: url,
+            includingPropertiesForKeys: resourceKeys,
+            options: [.skipsPackageDescendants]
+        ) else { return nil }
+        return contents.compactMap { childURL in
+            let kind = itemKind(for: childURL)
+            guard kind == .file || kind == .symlink else { return nil }
+            return shallowItem(for: childURL, parentPath: parentPath)
+        }
+    }
+
+    private static func balancedChildren(_ items: [ScanItem], limit: Int) -> [ScanItem] {
+        if items.count <= limit { return items }
+        let dirs = items.filter { $0.kind == .directory }
+        let files = items.filter { $0.kind != .directory }
+        let fileQuota = min(40, max(limit / 3, files.count))
+        let dirQuota = limit - fileQuota
+        let keptDirs = Array(dirs.prefix(dirQuota))
+        let keptFiles = Array(files.prefix(fileQuota))
+        return (keptDirs + keptFiles).sorted { lhs, rhs in
+            if lhs.sizeBytes == rhs.sizeBytes { return lhs.name < rhs.name }
+            return lhs.sizeBytes > rhs.sizeBytes
+        }
     }
 }
 

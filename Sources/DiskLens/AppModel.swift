@@ -113,7 +113,7 @@ final class AppModel: ObservableObject {
             scheduleSearchUpdate()
         }
     }
-    @Published var sizeThreshold: SizeThreshold = .all
+    @Published var sizeThreshold: SizeThreshold = .over100MB
     @Published var sortOption: ItemSortOption = .size
     @Published var loadingPath: String?
     @Published var cachedResult: ScanResult?
